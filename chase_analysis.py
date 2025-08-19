@@ -449,7 +449,53 @@ class RealChaseStatementAnalyzer:
         
         return merchant.strip()
 
-    def recategorize_transaction(self, merchant, original_category, master_categories, new_vendors=None):
+    def get_user_category_input(self, vendor_key, merchant):
+        """Get category input from user for new vendors that would be categorized as OTHER"""
+        print(f"\n🤔 New vendor found: '{vendor_key}'")
+        print(f"   Full merchant name: {merchant}")
+        print(f"   Available categories:")
+        
+        # Show available categories from the category mapping
+        categories = list(self.category_mapping.keys())
+        categories.append('OTHER')
+        categories.sort()
+        
+        for i, cat in enumerate(categories, 1):
+            print(f"     {i:2d}. {cat}")
+        
+        while True:
+            try:
+                response = input(f"\n   Enter category number (1-{len(categories)}) or name [default: OTHER]: ").strip()
+                
+                # Default to OTHER if no input
+                if not response:
+                    return 'OTHER'
+                
+                # Check if it's a number
+                if response.isdigit():
+                    choice = int(response)
+                    if 1 <= choice <= len(categories):
+                        return categories[choice - 1]
+                    else:
+                        print(f"   ❌ Please enter a number between 1 and {len(categories)}")
+                        continue
+                
+                # Check if it's a category name (case insensitive)
+                response_upper = response.upper()
+                for cat in categories:
+                    if cat.upper() == response_upper:
+                        return cat
+                
+                print(f"   ❌ Invalid category. Please try again.")
+                
+            except (KeyboardInterrupt, EOFError):
+                print(f"\n   ⏭️  Skipping categorization, using default: OTHER")
+                return 'OTHER'
+            except Exception as e:
+                print(f"   ❌ Error: {e}. Using default: OTHER")
+                return 'OTHER'
+
+    def recategorize_transaction(self, merchant, original_category, master_categories, new_vendors=None, interactive=False):
         """Apply master categorization rules to override original category"""
         if new_vendors is None:
             new_vendors = set()
@@ -471,10 +517,91 @@ class RealChaseStatementAnalyzer:
                 return new_category, False
         
         # No pattern matched - this is a new vendor
-        new_vendors.add((vendor_key, original_category))
-        return original_category, True
+        # If interactive mode and would be categorized as OTHER, ask user
+        if interactive and original_category == 'OTHER':
+            user_category = self.get_user_category_input(vendor_key, merchant)
+            new_vendors.add((vendor_key, user_category))
+            return user_category, True
+        else:
+            new_vendors.add((vendor_key, original_category))
+            return original_category, True
 
-    def apply_master_categorization(self, transactions):
+    def prompt_for_other_recategorization(self, transactions):
+        """Allow user to select and recategorize existing OTHER vendors"""
+        # Find all unique OTHER vendors in current transactions
+        other_vendors = {}
+        for txn in transactions:
+            if txn['category'] == 'OTHER':
+                vendor_key = self.extract_vendor_key(txn['merchant'])
+                if vendor_key not in other_vendors:
+                    other_vendors[vendor_key] = {
+                        'merchant': txn['merchant'],
+                        'amount': txn['amount'],
+                        'count': 1
+                    }
+                else:
+                    other_vendors[vendor_key]['count'] += 1
+                    other_vendors[vendor_key]['amount'] += txn['amount']
+        
+        if not other_vendors:
+            return
+        
+        print(f"\n🔍 Interactive Recategorization of OTHER Vendors")
+        print(f"   Found {len(other_vendors)} unique vendors in 'OTHER' category")
+        print(f"   Select vendors to recategorize:\n")
+        
+        # Show numbered list of OTHER vendors
+        vendor_list = list(other_vendors.items())
+        for i, (vendor_key, info) in enumerate(vendor_list, 1):
+            print(f"     {i:2d}. {vendor_key}")
+            print(f"         Sample: {info['merchant'][:60]}...")
+            print(f"         {info['count']} transaction(s), ${info['amount']:.2f}")
+            print()
+        
+        # Get user selection
+        try:
+            selection = input(f"   Enter vendor numbers to recategorize (e.g., 1,3,5 or 'all' or Enter to skip): ").strip()
+            
+            if not selection:
+                print("   ⏭️  Skipping recategorization")
+                return
+            
+            # Parse selection
+            vendors_to_recategorize = []
+            if selection.lower() == 'all':
+                vendors_to_recategorize = [vendor_key for vendor_key, _ in vendor_list]
+            else:
+                try:
+                    numbers = [int(x.strip()) for x in selection.split(',')]
+                    for num in numbers:
+                        if 1 <= num <= len(vendor_list):
+                            vendors_to_recategorize.append(vendor_list[num-1][0])
+                        else:
+                            print(f"   ⚠️  Invalid number: {num}")
+                except ValueError:
+                    print("   ❌ Invalid input format")
+                    return
+            
+            # Recategorize selected vendors
+            for vendor_key in vendors_to_recategorize:
+                merchant_info = other_vendors[vendor_key]
+                new_category = self.get_user_category_input(vendor_key, merchant_info['merchant'])
+                
+                if new_category != 'OTHER':
+                    # Update master categories
+                    self.master_categories[vendor_key] = new_category
+                    print(f"   ✅ {vendor_key} → {new_category}")
+            
+            # Save updated master file
+            if vendors_to_recategorize:
+                self.save_master_categories(self.master_categories, self.master_file)
+                print(f"\n   💾 Updated {os.path.basename(self.master_file)} with new categorizations")
+                
+        except (KeyboardInterrupt, EOFError):
+            print("\n   ⏭️  Recategorization cancelled")
+            return
+
+    def apply_master_categorization(self, transactions, interactive=False):
         """Apply master categorization to all transactions"""
         if not self.master_file:
             return transactions, 0
@@ -483,12 +610,16 @@ class RealChaseStatementAnalyzer:
         self.new_vendors = set()
         recategorized_count = 0
         
+        # If interactive mode, allow user to recategorize existing OTHER vendors
+        if interactive:
+            self.prompt_for_other_recategorization(transactions)
+        
         for txn in transactions:
             original_category = txn['category']
             merchant = txn['merchant']
             
             final_category, is_new_vendor = self.recategorize_transaction(
-                merchant, original_category, self.master_categories, self.new_vendors
+                merchant, original_category, self.master_categories, self.new_vendors, interactive
             )
             
             if final_category != original_category:
@@ -551,7 +682,7 @@ class RealChaseStatementAnalyzer:
                 filtered_txn = {k: v for k, v in txn.items() if k in fieldnames}
                 writer.writerow(filtered_txn)
 
-    def process_pdf_file(self, pdf_path, create_csv=False, use_master=False):
+    def process_pdf_file(self, pdf_path, create_csv=False, use_master=False, interactive=False):
         """Process a single PDF file by actually reading it"""
         self.pdf_file = pdf_path
         
@@ -580,7 +711,7 @@ class RealChaseStatementAnalyzer:
         recategorized_count = 0
         if use_master and self.master_file:
             print(f"   📋 Applying master categorization...")
-            transactions, recategorized_count = self.apply_master_categorization(transactions)
+            transactions, recategorized_count = self.apply_master_categorization(transactions, interactive=interactive)
             self.transactions = transactions
             
         # Step 4: Verify totals
@@ -776,12 +907,13 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python real_chase_analysis.py statement.pdf              # Analyze specific PDF
-  python real_chase_analysis.py -c statement.pdf           # Analyze and create CSV
-  python real_chase_analysis.py -c -m statement.pdf        # Analyze with master categorization
-  python real_chase_analysis.py -d /path/to/pdfs/          # Process directory
-  python real_chase_analysis.py -d -m /path/to/pdfs/       # Process directory with master categorization
-  python real_chase_analysis.py --master-file custom.csv statement.pdf  # Use custom master file
+  python chase_analysis.py statement.pdf                   # Analyze specific PDF
+  python chase_analysis.py -c statement.pdf                # Analyze and create CSV
+  python chase_analysis.py -c -m statement.pdf             # Analyze with master categorization
+  python chase_analysis.py -c -m -i statement.pdf          # Interactive categorization for OTHER vendors
+  python chase_analysis.py -d /path/to/pdfs/               # Process directory
+  python chase_analysis.py -d -m /path/to/pdfs/            # Process directory with master categorization
+  python chase_analysis.py --master-file custom.csv statement.pdf  # Use custom master file
         """
     )
     
@@ -794,6 +926,8 @@ Examples:
                        help='Use master categorization file for advanced categorization')
     parser.add_argument('--master-file', 
                        help='Specify custom master categorization file path')
+    parser.add_argument('-i', '--interactive', action='store_true',
+                       help='Enable interactive categorization for OTHER category vendors')
     
     args = parser.parse_args()
     
@@ -814,7 +948,7 @@ Examples:
         
         for pdf_file in pdf_files:
             analyzer = RealChaseStatementAnalyzer(master_file=master_file)
-            analyzer.process_pdf_file(pdf_file, create_csv=args.csv, use_master=bool(master_file))
+            analyzer.process_pdf_file(pdf_file, create_csv=args.csv, use_master=bool(master_file), interactive=args.interactive)
             print("\n" + "=" * 80 + "\n")
             
     elif args.pdf_file:
@@ -834,7 +968,7 @@ Examples:
                 master_file = os.path.join(pdf_dir, "categories.master")
         
         analyzer = RealChaseStatementAnalyzer(master_file=master_file)
-        analyzer.process_pdf_file(args.pdf_file, create_csv=args.csv, use_master=bool(master_file))
+        analyzer.process_pdf_file(args.pdf_file, create_csv=args.csv, use_master=bool(master_file), interactive=args.interactive)
     else:
         print("Error: Please specify a PDF file or directory")
         parser.print_help()
