@@ -61,7 +61,8 @@ class RealChaseStatementAnalyzer:
     def extract_pdf_content(self, pdf_path):
         """Extract actual text content from PDF file using pdfplumber"""
         try:
-            print(f"   📄 Reading PDF file: {os.path.basename(pdf_path)}")
+            if not getattr(self, 'summary_only', False):
+                print(f"   📄 Reading PDF file: {os.path.basename(pdf_path)}")
             
             with pdfplumber.open(pdf_path) as pdf:
                 all_text = ""
@@ -71,23 +72,27 @@ class RealChaseStatementAnalyzer:
                         all_text += page_text + "\n"
                 
                 if all_text.strip():
-                    print(f"   ✅ Successfully extracted {len(all_text)} characters from PDF")
+                    if not getattr(self, 'summary_only', False):
+                        print(f"   ✅ Successfully extracted {len(all_text)} characters from PDF")
                     return all_text
                 else:
                     raise ValueError("No text could be extracted from PDF")
                     
         except Exception as e:
-            print(f"   ❌ Error reading PDF: {e}")
-            print(f"   💡 Make sure the PDF file exists and is readable")
+            if not getattr(self, 'summary_only', False):
+                print(f"   ❌ Error reading PDF: {e}")
+                print(f"   💡 Make sure the PDF file exists and is readable")
             return ""
 
     def parse_statement_summary(self, pdf_text):
         """Parse statement summary from actual PDF text"""
-        print(f"   🔍 Parsing statement summary...")
+        if not getattr(self, 'summary_only', False):
+            print(f"   🔍 Parsing statement summary...")
         
         # Debug: Show relevant lines from PDF
         lines = pdf_text.split('\n')
-        print(f"   📋 Looking for statement summary in {len(lines)} lines...")
+        if not getattr(self, 'summary_only', False):
+            print(f"   📋 Looking for statement summary in {len(lines)} lines...")
         
         try:
             # Look for Previous Balance
@@ -101,7 +106,8 @@ class RealChaseStatementAnalyzer:
                 match = re.search(pattern, pdf_text, re.IGNORECASE)
                 if match:
                     self.statement_previous_balance = float(match.group(1).replace(',', ''))
-                    print(f"     Previous Balance: ${self.statement_previous_balance:,.2f}")
+                    if not getattr(self, 'summary_only', False):
+                        print(f"     Previous Balance: ${self.statement_previous_balance:,.2f}")
                     break
             
             # Look for Payment/Credits
@@ -116,7 +122,8 @@ class RealChaseStatementAnalyzer:
                 if match:
                     amount = float(match.group(1).replace(',', ''))
                     self.statement_payment_total = -abs(amount)  # Ensure negative
-                    print(f"     Payments/Credits: ${self.statement_payment_total:,.2f}")
+                    if not getattr(self, 'summary_only', False):
+                        print(f"     Payments/Credits: ${self.statement_payment_total:,.2f}")
                     break
             
             # Look specifically for the purchase line in statement summary
@@ -125,7 +132,8 @@ class RealChaseStatementAnalyzer:
             
             if purchase_match:
                 self.statement_purchase_total = float(purchase_match.group(1).replace(',', ''))
-                print(f"     Purchases: ${self.statement_purchase_total:,.2f}")
+                if not getattr(self, 'summary_only', False):
+                    print(f"     Purchases: ${self.statement_purchase_total:,.2f}")
             else:
                 # Fallback patterns
                 fallback_patterns = [
@@ -137,7 +145,8 @@ class RealChaseStatementAnalyzer:
                     match = re.search(pattern, pdf_text, re.IGNORECASE)
                     if match:
                         self.statement_purchase_total = float(match.group(1).replace(',', ''))
-                        print(f"     Purchases (fallback): ${self.statement_purchase_total:,.2f}")
+                        if not getattr(self, 'summary_only', False):
+                            print(f"     Purchases (fallback): ${self.statement_purchase_total:,.2f}")
                         break
                 else:
                     print(f"     ⚠️  No purchase totals found")
@@ -201,7 +210,8 @@ class RealChaseStatementAnalyzer:
 
     def extract_transactions_from_pdf(self, pdf_text):
         """Extract all transactions from actual PDF text (excluding payments)"""
-        print(f"   🔍 Extracting transactions from PDF (excluding payments)...")
+        if not getattr(self, 'summary_only', False):
+            print(f"   🔍 Extracting transactions from PDF (excluding payments)...")
         
         lines = pdf_text.split('\n')
         all_transactions = []
@@ -246,7 +256,8 @@ class RealChaseStatementAnalyzer:
                     match = re.search(pattern, line)
                     if match:
                         current_cardholder = match.group(1).strip()
-                        print(f"     Found cardholder: {current_cardholder}")
+                        if not getattr(self, 'summary_only', False):
+                            print(f"     Found cardholder: {current_cardholder}")
                         
                         # Assign all pending transactions to this cardholder
                         for txn_data in pending_transactions:
@@ -287,7 +298,8 @@ class RealChaseStatementAnalyzer:
                         
                         # Skip payments - only include purchases
                         if amount < 0 or 'payment' in merchant.lower() or 'thank you' in merchant.lower():
-                            print(f"     Skipping payment: {merchant} ${amount}")
+                            if not getattr(self, 'summary_only', False):
+                                print(f"     Skipping payment: {merchant} ${amount}")
                             transaction_found = True
                             break
                         
@@ -319,44 +331,45 @@ class RealChaseStatementAnalyzer:
                 }
                 all_transactions.append(transaction)
         
-        print(f"   ✅ Extracted {len(all_transactions)} transactions")
-        
-        # Show transaction summary by cardholder
-        if all_transactions:
-            cardholder_totals = {}
-            for txn in all_transactions:
-                ch = txn['cardholder']
-                if ch not in cardholder_totals:
-                    cardholder_totals[ch] = {'count': 0, 'total': 0}
-                cardholder_totals[ch]['count'] += 1
-                cardholder_totals[ch]['total'] += txn['amount']
+        if not getattr(self, 'summary_only', False):
+            print(f"   ✅ Extracted {len(all_transactions)} transactions")
             
-            print(f"   📋 Transaction summary by cardholder:")
-            grand_total = 0
-            for ch, stats in cardholder_totals.items():
-                print(f"     {ch}: {stats['count']} txns, ${stats['total']:,.2f}")
-                grand_total += stats['total']
-            print(f"     TOTAL: {len(all_transactions)} txns, ${grand_total:,.2f}")
+            # Show transaction summary by cardholder
+            if all_transactions:
+                cardholder_totals = {}
+                for txn in all_transactions:
+                    ch = txn['cardholder']
+                    if ch not in cardholder_totals:
+                        cardholder_totals[ch] = {'count': 0, 'total': 0}
+                    cardholder_totals[ch]['count'] += 1
+                    cardholder_totals[ch]['total'] += txn['amount']
+                
+                print(f"   📋 Transaction summary by cardholder:")
+                grand_total = 0
+                for ch, stats in cardholder_totals.items():
+                    print(f"     {ch}: {stats['count']} txns, ${stats['total']:,.2f}")
+                    grand_total += stats['total']
+                print(f"     TOTAL: {len(all_transactions)} txns, ${grand_total:,.2f}")
+                
+                # Show largest transactions for verification
+                sorted_txns = sorted(all_transactions, key=lambda x: x['amount'], reverse=True)
+                print(f"   💰 Largest transactions:")
+                for i, txn in enumerate(sorted_txns[:5]):
+                    print(f"     {i+1}. ${txn['amount']:,.2f} | {txn['cardholder']} | {txn['merchant'][:40]}")
             
-            # Show largest transactions for verification
-            sorted_txns = sorted(all_transactions, key=lambda x: x['amount'], reverse=True)
-            print(f"   💰 Largest transactions:")
-            for i, txn in enumerate(sorted_txns[:5]):
-                print(f"     {i+1}. ${txn['amount']:,.2f} | {txn['cardholder']} | {txn['merchant'][:40]}")
-        
-        # Debug: Look for any missed high-value transactions in the PDF
-        print(f"   🔍 Checking for high-value transactions that might be missed...")
-        high_value_pattern = r'(\d{2}/\d{2}).*?\$?(\d{1,3}(?:,\d{3})+\.?\d{0,2})'
-        high_value_matches = re.findall(high_value_pattern, pdf_text)
-        if high_value_matches:
-            print(f"     Found {len(high_value_matches)} potential high-value patterns:")
-            for date, amount in high_value_matches[:10]:  # Show first 10
-                try:
-                    amt_val = float(amount.replace(',', ''))
-                    if amt_val > 500:  # Only show amounts > $500
-                        print(f"       {date}: ${amt_val:,.2f}")
-                except:
-                    pass
+            # Debug: Look for any missed high-value transactions in the PDF
+            print(f"   🔍 Checking for high-value transactions that might be missed...")
+            high_value_pattern = r'(\d{2}/\d{2}).*?\$?(\d{1,3}(?:,\d{3})+\.?\d{0,2})'
+            high_value_matches = re.findall(high_value_pattern, pdf_text)
+            if high_value_matches:
+                print(f"     Found {len(high_value_matches)} potential high-value patterns:")
+                for date, amount in high_value_matches[:10]:  # Show first 10
+                    try:
+                        amt_val = float(amount.replace(',', ''))
+                        if amt_val > 500:  # Only show amounts > $500
+                            print(f"       {date}: ${amt_val:,.2f}")
+                    except:
+                        pass
         
         self.transactions = all_transactions
         return all_transactions
@@ -401,7 +414,8 @@ class RealChaseStatementAnalyzer:
                     category = row['category'].strip()
                     master_categories[pattern] = category
             
-            print(f"   📋 Loaded {len(master_categories)} categorization rules from {os.path.basename(master_file)}")
+            if not getattr(self, 'summary_only', False):
+                print(f"   📋 Loaded {len(master_categories)} categorization rules from {os.path.basename(master_file)}")
             return master_categories
             
         except Exception as e:
@@ -638,7 +652,7 @@ class RealChaseStatementAnalyzer:
             self.save_master_categories(self.master_categories, self.master_file)
             print(f"   💾 Updated {os.path.basename(self.master_file)} with new vendors")
         
-        if recategorized_count > 0:
+        if recategorized_count > 0 and not getattr(self, 'summary_only', False):
             print(f"   🔄 Recategorized {recategorized_count} transactions using master rules")
         
         return transactions, recategorized_count
@@ -682,17 +696,20 @@ class RealChaseStatementAnalyzer:
                 filtered_txn = {k: v for k, v in txn.items() if k in fieldnames}
                 writer.writerow(filtered_txn)
 
-    def process_pdf_file(self, pdf_path, create_csv=False, use_master=False, interactive=False):
+    def process_pdf_file(self, pdf_path, create_csv=False, use_master=False, interactive=False, summary_only=False):
         """Process a single PDF file by actually reading it"""
         self.pdf_file = pdf_path
+        self.summary_only = summary_only  # Store for use in other methods
         
-        print(f"🔍 Processing PDF file: {os.path.basename(pdf_path)}")
-        print("=" * 80)
+        if not summary_only:
+            print(f"🔍 Processing PDF file: {os.path.basename(pdf_path)}")
+            print("=" * 80)
         
         # Step 1: Extract PDF content
         self.pdf_text = self.extract_pdf_content(pdf_path)
         if not self.pdf_text:
-            print("❌ Failed to extract PDF content")
+            if not summary_only:
+                print("❌ Failed to extract PDF content")
             return None
             
         # Step 2: Parse statement summary
@@ -704,13 +721,15 @@ class RealChaseStatementAnalyzer:
         # Step 3: Extract transactions
         transactions = self.extract_transactions_from_pdf(self.pdf_text)
         if not transactions:
-            print("❌ No transactions found in PDF")
+            if not summary_only:
+                print("❌ No transactions found in PDF")
             return None
         
         # Step 3.5: Apply master categorization if enabled
         recategorized_count = 0
         if use_master and self.master_file:
-            print(f"   📋 Applying master categorization...")
+            if not summary_only:
+                print(f"   📋 Applying master categorization...")
             transactions, recategorized_count = self.apply_master_categorization(transactions, interactive=interactive)
             self.transactions = transactions
             
@@ -720,7 +739,7 @@ class RealChaseStatementAnalyzer:
         verification['new_vendors_count'] = len(self.new_vendors) if hasattr(self, 'new_vendors') else 0
         
         # Step 5: Display results
-        self.display_results(verification)
+        self.display_results(verification, summary_only=summary_only)
         
         # Step 6: Create CSV if requested
         if create_csv:
@@ -744,8 +763,25 @@ class RealChaseStatementAnalyzer:
         
         return verification
 
-    def display_results(self, verification):
+    def display_results(self, verification, summary_only=False):
         """Display analysis results"""
+        if summary_only:
+            # Summary-only mode: just show totals and category breakdown
+            print(f"\n📊 STATEMENT TOTALS")
+            print("=" * 50)
+            print(f"Statement Total: ${verification['purchase_total_statement']:,.2f}")
+            print(f"Calculated Total: ${verification['purchase_total_calculated']:,.2f}")
+            if verification['purchase_match']:
+                print("Status: ✅ MATCH")
+            else:
+                diff = verification['purchase_total_calculated'] - verification['purchase_total_statement']
+                print(f"Status: ❌ MISMATCH (${diff:,.2f})")
+            
+            # Category breakdown table
+            self.display_category_table()
+            return
+        
+        # Full detailed output (original behavior)
         print("\n" + "=" * 80)
         print("CHASE CREDIT CARD STATEMENT ANALYSIS - REAL PDF DATA")
         print("=" * 80)
@@ -911,6 +947,7 @@ Examples:
   python chase_analysis.py -c statement.pdf                # Analyze and create CSV
   python chase_analysis.py -c -m statement.pdf             # Analyze with master categorization
   python chase_analysis.py -c -m -i statement.pdf          # Interactive categorization for OTHER vendors
+  python chase_analysis.py -S statement.pdf                # Summary only: totals and category breakdown
   python chase_analysis.py -d /path/to/pdfs/               # Process directory
   python chase_analysis.py -d -m /path/to/pdfs/            # Process directory with master categorization
   python chase_analysis.py --master-file custom.csv statement.pdf  # Use custom master file
@@ -928,6 +965,8 @@ Examples:
                        help='Specify custom master categorization file path')
     parser.add_argument('-i', '--interactive', action='store_true',
                        help='Enable interactive categorization for OTHER category vendors')
+    parser.add_argument('-S', '--summary-only', action='store_true',
+                       help='Show only statement totals and category breakdown table')
     
     args = parser.parse_args()
     
@@ -948,7 +987,7 @@ Examples:
         
         for pdf_file in pdf_files:
             analyzer = RealChaseStatementAnalyzer(master_file=master_file)
-            analyzer.process_pdf_file(pdf_file, create_csv=args.csv, use_master=bool(master_file), interactive=args.interactive)
+            analyzer.process_pdf_file(pdf_file, create_csv=args.csv, use_master=bool(master_file), interactive=args.interactive, summary_only=args.summary_only)
             print("\n" + "=" * 80 + "\n")
             
     elif args.pdf_file:
@@ -968,7 +1007,7 @@ Examples:
                 master_file = os.path.join(pdf_dir, "categories.master")
         
         analyzer = RealChaseStatementAnalyzer(master_file=master_file)
-        analyzer.process_pdf_file(args.pdf_file, create_csv=args.csv, use_master=bool(master_file), interactive=args.interactive)
+        analyzer.process_pdf_file(args.pdf_file, create_csv=args.csv, use_master=bool(master_file), interactive=args.interactive, summary_only=args.summary_only)
     else:
         print("Error: Please specify a PDF file or directory")
         parser.print_help()
