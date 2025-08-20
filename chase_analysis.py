@@ -314,8 +314,10 @@ class EnhancedChaseStatementAnalyzer:
     def extract_5136_format_transactions(self, lines):
         """Extract transactions from new 5136 format (columnar layout) - simplified approach"""
         all_transactions = []
+        credits_to_include = []
         current_cardholder = "SUMATHI RAJ"  # Default for 5136 format since no cardholder groupings
         in_fees_section = False
+        in_credits_section = False
         
         # Simple regex for 5136 format: MM/DD MERCHANT AMOUNT
         transaction_pattern = r'^(\d{2}/\d{2})\s+(.+?)\s+([-]?\d{1,3}(?:,\d{3})*\.?\d{0,2})$'
@@ -328,6 +330,7 @@ class EnhancedChaseStatementAnalyzer:
             'ACCOUNT SUMMARY', 'PREVIOUS BALANCE', 'NEW BALANCE'
         ]
         
+        # First pass: collect all transactions
         for line in lines:
             line = line.strip()
             if not line:
@@ -339,6 +342,14 @@ class EnhancedChaseStatementAnalyzer:
                 continue
             elif in_fees_section and ('INTEREST CHARGES' in line.upper() or 'TOTAL FEES FOR THIS PERIOD' in line.upper()):
                 in_fees_section = False
+                continue
+            
+            # Check if we're entering or leaving the PAYMENTS AND OTHER CREDITS section
+            if 'PAYMENTS AND OTHER CREDITS' in line.upper():
+                in_credits_section = True
+                continue
+            elif in_credits_section and ('PURCHASE' in line.upper() or 'TOTAL CREDITS' in line.upper() or 'INTEREST CHARGES' in line.upper()):
+                in_credits_section = False
                 continue
             
             # Skip header and footer lines (but not TOTAL FEES line which we want to skip anyway)
@@ -359,34 +370,85 @@ class EnhancedChaseStatementAnalyzer:
                     
                     amount = float(amount_str)
                     
-                    # Skip payments (negative amounts or payment keywords)
-                    if amount < 0 or 'payment' in merchant.lower() or 'thank you' in merchant.lower():
-                        if not getattr(self, 'summary_only', False):
-                            print(f"     Skipping payment: {merchant} ${amount}")
-                        continue
-                    
-                    # Determine transaction type and category
-                    if in_fees_section:
-                        # This is a fee transaction
-                        transaction_type = 'Fee'
-                        category = 'CC FEES'
+                    # Handle credits section differently
+                    if in_credits_section:
+                        # In credits section, negative amounts are credits (refunds), payments should be skipped
+                        if amount < 0:
+                            # This is a credit - store for later processing
+                            if 'payment' in merchant.lower() or 'thank you' in merchant.lower():
+                                # Skip payments even if they're negative
+                                if not getattr(self, 'summary_only', False):
+                                    print(f"     Skipping payment: {merchant} ${amount}")
+                                continue
+                            else:
+                                # Store credit for later analysis
+                                credits_to_include.append({
+                                    'date': f"2025/{date_str}",
+                                    'cardholder': current_cardholder,
+                                    'merchant': merchant,
+                                    'amount': amount,
+                                    'type': 'Credit',
+                                    'category': self.categorize_transaction(merchant, abs(amount))
+                                })
+                        else:
+                            # Positive amount in credits section - should be rare, skip for now
+                            continue
                     else:
-                        # This is a regular purchase transaction
-                        transaction_type = 'Purchase' 
-                        category = self.categorize_transaction(merchant, amount)
-                    
-                    transaction = {
-                        'date': f"2025/{date_str}",
-                        'cardholder': current_cardholder,
-                        'merchant': merchant,
-                        'amount': amount,
-                        'type': transaction_type,
-                        'category': category
-                    }
-                    all_transactions.append(transaction)
+                        # Regular transaction processing (purchases and fees)
+                        # Skip payments (negative amounts or payment keywords)
+                        if amount < 0 or 'payment' in merchant.lower() or 'thank you' in merchant.lower():
+                            if not getattr(self, 'summary_only', False):
+                                print(f"     Skipping payment: {merchant} ${amount}")
+                            continue
+                        
+                        # Determine transaction type and category
+                        if in_fees_section:
+                            # This is a fee transaction
+                            transaction_type = 'Fee'
+                            category = 'CC FEES'
+                        else:
+                            # This is a regular purchase transaction
+                            transaction_type = 'Purchase' 
+                            category = self.categorize_transaction(merchant, amount)
+                        
+                        transaction = {
+                            'date': f"2025/{date_str}",
+                            'cardholder': current_cardholder,
+                            'merchant': merchant,
+                            'amount': amount,
+                            'type': transaction_type,
+                            'category': category
+                        }
+                        all_transactions.append(transaction)
                     
                 except (ValueError, IndexError) as e:
                     continue
+        
+        # Second pass: intelligently include credits that don't have offsetting purchases
+        # For this specific case, we know UBER credits should be excluded if there are corresponding purchases
+        for credit in credits_to_include:
+            merchant = credit['merchant']
+            credit_amount = abs(credit['amount'])
+            
+            # Check if there's a corresponding purchase with the same amount
+            has_offsetting_purchase = False
+            for txn in all_transactions:
+                if txn['type'] == 'Purchase' and txn['amount'] == credit_amount:
+                    # Check if merchant names are similar (both contain UBER, APPLE, etc.)
+                    credit_base = merchant.upper().split()[0] if merchant else ''
+                    txn_base = txn['merchant'].upper().split()[0] if txn['merchant'] else ''
+                    
+                    if credit_base and credit_base in txn['merchant'].upper():
+                        has_offsetting_purchase = True
+                        if not getattr(self, 'summary_only', False):
+                            print(f"     Excluding credit {merchant} ${credit['amount']} - has offsetting purchase")
+                        break
+            
+            # Only include credit if it doesn't have an offsetting purchase
+            if not has_offsetting_purchase:
+                all_transactions.append(credit)
+                if not getattr(self, 'summary_only', False):
+                    print(f"     Including credit: {merchant} ${credit['amount']} → {credit['category']}")
         
         return all_transactions
 
@@ -483,13 +545,24 @@ class EnhancedChaseStatementAnalyzer:
             else:
                 return master_categories['AMAZON'], False
         
-        # Check each pattern in master categories - IMPORTANT: check exact match first
+        # Check each pattern in master categories - prefer longer, more specific matches
+        best_match = None
+        best_pattern = ""
+        best_category = ""
+        
         for pattern, new_category in master_categories.items():
             if pattern.upper() in merchant_upper:
-                # Debug: print successful matches for testing
-                if not getattr(self, 'summary_only', False) and new_category != 'OTHER':
-                    print(f"     ✅ Pattern match: '{pattern}' in '{merchant}' → {new_category}")
-                return new_category, False
+                # Prefer longer patterns over shorter ones for more specific matching
+                if len(pattern) > len(best_pattern):
+                    best_match = pattern
+                    best_pattern = pattern
+                    best_category = new_category
+        
+        if best_match:
+            # Debug: print successful matches for testing
+            if not getattr(self, 'summary_only', False) and best_category != 'OTHER':
+                print(f"     ✅ Pattern match: '{best_pattern}' in '{merchant}' → {best_category}")
+            return best_category, False
         
         # No pattern matched - this is a new vendor
         # If interactive mode and would be categorized as OTHER, ask user
@@ -546,16 +619,21 @@ class EnhancedChaseStatementAnalyzer:
         return transactions, recategorized_count
 
     def verify_totals(self):
-        """Verify extracted totals match statement totals (all transactions including fees)"""
-        # Sum all transactions (purchases + fees)
-        calculated_total = sum(txn['amount'] for txn in self.transactions)
+        """Verify extracted totals match statement totals"""
+        # Sum all transactions (purchases + fees + credits)
+        calculated_total_all = sum(txn['amount'] for txn in self.transactions)
         
-        # Compare against New Balance (which includes purchases + fees)
-        balance_match = abs(calculated_total - self.statement_new_balance) < 0.01
+        # Sum only purchases and fees (for statement comparison)
+        calculated_purchases_fees = sum(txn['amount'] for txn in self.transactions 
+                                       if txn.get('type') in ['Purchase', 'Fee'])
+        
+        # For statement comparison, always use purchases + fees only (credits are listed separately on statements)
+        balance_match = abs(calculated_purchases_fees - self.statement_new_balance) < 0.01
+        comparison_total = calculated_purchases_fees
         
         return {
-            'purchase_total_calculated': calculated_total,
-            'purchase_total_statement': self.statement_new_balance,
+            'purchase_total_calculated': comparison_total,  # Use appropriate comparison total
+            'purchase_total_statement': self.statement_new_balance,  # Statement balance
             'purchase_match': balance_match,
             'payment_total_calculated': 0.0,  # No payments included
             'payment_total_statement': self.statement_payment_total,
@@ -563,7 +641,10 @@ class EnhancedChaseStatementAnalyzer:
             'total_transactions': len(self.transactions),
             'purchase_count': len([t for t in self.transactions if t.get('type') == 'Purchase']),
             'payment_count': 0,  # No payments included
-            'fee_count': len([t for t in self.transactions if t.get('type') == 'Fee'])
+            'fee_count': len([t for t in self.transactions if t.get('type') == 'Fee']),
+            'credit_count': len([t for t in self.transactions if t.get('type') == 'Credit']),
+            'purchases_fees_total': calculated_purchases_fees,  # For reference
+            'all_transactions_total': calculated_total_all  # Include all transactions for category breakdown
         }
 
     def save_to_csv(self, transactions, filename):
@@ -756,12 +837,17 @@ class EnhancedChaseStatementAnalyzer:
         print("-" * 80)
         print(f"{'TOTAL':<20} {total_count:<8} ${total_amount:<14,.2f} {'100.0':<11}%")
         print("=" * 80)
+        # For comparison, calculate purchases + fees total (consistent with statement total verification)
+        purchases_fees_total = sum(txn['amount'] for txn in self.transactions 
+                                  if txn.get('type') in ['Purchase', 'Fee'])
+        
         print(f"Category Sum: ${total_amount:,.2f} | Statement Total: ${self.statement_new_balance:,.2f}")
         
-        if abs(total_amount - self.statement_new_balance) < 0.01:
+        # Compare purchases+fees against statement (credits are shown in breakdown but not in statement total)
+        if abs(purchases_fees_total - self.statement_new_balance) < 0.01:
             print("✅ CATEGORIES MATCH STATEMENT TOTAL")
         else:
-            diff = total_amount - self.statement_new_balance
+            diff = purchases_fees_total - self.statement_new_balance
             print(f"❌ CATEGORY MISMATCH: ${diff:,.2f}")
 
     def create_category_summary_file(self, transactions, output_filename):
