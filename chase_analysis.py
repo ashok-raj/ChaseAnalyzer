@@ -111,9 +111,19 @@ class EnhancedChaseStatementAnalyzer:
             return 'OTHER'
 
     def detect_statement_format(self, lines):
-        """Detect which Chase statement format we're dealing with"""
-        # Look for format indicators in first 50 lines
+        """Detect which Chase statement format we're dealing with by checking Account Number"""
+        # Look for "Account Number:" in first 50 lines and extract last 4 digits
         sample_lines = lines[:50]
+        
+        for line in sample_lines:
+            if 'Account Number:' in line:
+                # Extract the account number and get last 4 digits
+                if '5136' in line:
+                    return '5136'
+                elif '0801' in line:
+                    return '0801'
+        
+        # Fallback to old detection method if Account Number not found
         sample_text = '\n'.join(sample_lines).upper()
         
         # 5136 format indicators
@@ -305,6 +315,7 @@ class EnhancedChaseStatementAnalyzer:
         """Extract transactions from new 5136 format (columnar layout) - simplified approach"""
         all_transactions = []
         current_cardholder = "SUMATHI RAJ"  # Default for 5136 format since no cardholder groupings
+        in_fees_section = False
         
         # Simple regex for 5136 format: MM/DD MERCHANT AMOUNT
         transaction_pattern = r'^(\d{2}/\d{2})\s+(.+?)\s+([-]?\d{1,3}(?:,\d{3})*\.?\d{0,2})$'
@@ -313,7 +324,7 @@ class EnhancedChaseStatementAnalyzer:
         skip_patterns = [
             'Date of', 'Transaction', 'Merchant Name', '$ Amount',
             'Account Summary', 'Previous Balance', 'New Balance',
-            'Minimum Payment', 'Payment Due', 'Total Fees', 'Interest',
+            'Minimum Payment', 'Payment Due', 'Interest',
             'ACCOUNT SUMMARY', 'PREVIOUS BALANCE', 'NEW BALANCE'
         ]
         
@@ -322,8 +333,16 @@ class EnhancedChaseStatementAnalyzer:
             if not line:
                 continue
             
-            # Skip header and footer lines
-            if any(skip in line for skip in skip_patterns):
+            # Check if we're entering or leaving the FEES CHARGED section
+            if 'FEES CHARGED' in line.upper():
+                in_fees_section = True
+                continue
+            elif in_fees_section and ('INTEREST CHARGES' in line.upper() or 'TOTAL FEES FOR THIS PERIOD' in line.upper()):
+                in_fees_section = False
+                continue
+            
+            # Skip header and footer lines (but not TOTAL FEES line which we want to skip anyway)
+            if any(skip in line for skip in skip_patterns) or 'TOTAL FEES' in line.upper():
                 continue
             
             # Try to match transaction pattern
@@ -346,15 +365,22 @@ class EnhancedChaseStatementAnalyzer:
                             print(f"     Skipping payment: {merchant} ${amount}")
                         continue
                     
-                    # Categorize transaction
-                    category = self.categorize_transaction(merchant, amount)
+                    # Determine transaction type and category
+                    if in_fees_section:
+                        # This is a fee transaction
+                        transaction_type = 'Fee'
+                        category = 'CC FEES'
+                    else:
+                        # This is a regular purchase transaction
+                        transaction_type = 'Purchase' 
+                        category = self.categorize_transaction(merchant, amount)
                     
                     transaction = {
                         'date': f"2025/{date_str}",
                         'cardholder': current_cardholder,
                         'merchant': merchant,
                         'amount': amount,
-                        'type': 'Purchase',
+                        'type': transaction_type,
                         'category': category
                     }
                     all_transactions.append(transaction)
@@ -489,8 +515,13 @@ class EnhancedChaseStatementAnalyzer:
             original_category = txn['category']
             merchant = txn['merchant']
             
-            final_category, is_new_vendor = self.recategorize_transaction(
-                merchant, original_category, self.master_categories, self.new_vendors, interactive
+            # Preserve CC FEES category for fee transactions - don't recategorize
+            if txn.get('type') == 'Fee' and original_category == 'CC FEES':
+                final_category = 'CC FEES'
+                is_new_vendor = False
+            else:
+                final_category, is_new_vendor = self.recategorize_transaction(
+                    merchant, original_category, self.master_categories, self.new_vendors, interactive
             )
             
             if final_category != original_category:
@@ -515,24 +546,24 @@ class EnhancedChaseStatementAnalyzer:
         return transactions, recategorized_count
 
     def verify_totals(self):
-        """Verify extracted totals match statement totals (purchases only)"""
-        # All transactions are purchases now (payments excluded)
-        purchases = self.transactions
+        """Verify extracted totals match statement totals (all transactions including fees)"""
+        # Sum all transactions (purchases + fees)
+        calculated_total = sum(txn['amount'] for txn in self.transactions)
         
-        calculated_purchase_total = sum(txn['amount'] for txn in purchases)
-        
-        purchase_match = abs(calculated_purchase_total - self.statement_purchase_total) < 0.01
+        # Compare against New Balance (which includes purchases + fees)
+        balance_match = abs(calculated_total - self.statement_new_balance) < 0.01
         
         return {
-            'purchase_total_calculated': calculated_purchase_total,
-            'purchase_total_statement': self.statement_purchase_total,
-            'purchase_match': purchase_match,
+            'purchase_total_calculated': calculated_total,
+            'purchase_total_statement': self.statement_new_balance,
+            'purchase_match': balance_match,
             'payment_total_calculated': 0.0,  # No payments included
             'payment_total_statement': self.statement_payment_total,
             'payment_match': True,  # N/A since we excluded payments
             'total_transactions': len(self.transactions),
-            'purchase_count': len(purchases),
-            'payment_count': 0  # No payments included
+            'purchase_count': len([t for t in self.transactions if t.get('type') == 'Purchase']),
+            'payment_count': 0,  # No payments included
+            'fee_count': len([t for t in self.transactions if t.get('type') == 'Fee'])
         }
 
     def save_to_csv(self, transactions, filename):
@@ -725,12 +756,12 @@ class EnhancedChaseStatementAnalyzer:
         print("-" * 80)
         print(f"{'TOTAL':<20} {total_count:<8} ${total_amount:<14,.2f} {'100.0':<11}%")
         print("=" * 80)
-        print(f"Category Sum: ${total_amount:,.2f} | Statement Total: ${self.statement_purchase_total:,.2f}")
+        print(f"Category Sum: ${total_amount:,.2f} | Statement Total: ${self.statement_new_balance:,.2f}")
         
-        if abs(total_amount - self.statement_purchase_total) < 0.01:
+        if abs(total_amount - self.statement_new_balance) < 0.01:
             print("✅ CATEGORIES MATCH STATEMENT TOTAL")
         else:
-            diff = total_amount - self.statement_purchase_total
+            diff = total_amount - self.statement_new_balance
             print(f"❌ CATEGORY MISMATCH: ${diff:,.2f}")
 
     def create_category_summary_file(self, transactions, output_filename):
@@ -809,17 +840,20 @@ def main():
     master_file = None
     if args.master or args.master_file:
         if args.master_file:
-            # If an explicit master file is provided, check if it's just the filename
-            # and if so, prefer the directory-specific version if it exists
-            if args.pdf_file and os.path.basename(args.master_file) == args.master_file:
+            # Use the explicitly specified master file path
+            # Only fall back to directory-specific search if the explicit file doesn't exist
+            if os.path.exists(args.master_file):
+                master_file = args.master_file
+            elif args.pdf_file and os.path.basename(args.master_file) == args.master_file:
+                # If explicit file doesn't exist and it's just a filename, try in PDF directory
                 pdf_dir = os.path.dirname(args.pdf_file) or '.'
                 dir_master_file = os.path.join(pdf_dir, args.master_file)
                 if os.path.exists(dir_master_file):
                     master_file = dir_master_file
                 else:
-                    master_file = args.master_file
+                    master_file = args.master_file  # Use as-is even if it doesn't exist
             else:
-                master_file = args.master_file
+                master_file = args.master_file  # Use as-is (could be relative or absolute path)
         elif args.directory:
             master_file = os.path.join(args.directory, 'categories.master')
         elif args.pdf_file:
@@ -849,8 +883,44 @@ def main():
         
         for pdf_file in sorted(pdf_files):
             pdf_path = os.path.join(args.directory, pdf_file)
-            analyzer.process_pdf_file(pdf_path, create_csv=args.csv, use_master=bool(master_file), interactive=args.interactive, summary_only=args.summary_only)
-            print("\n" + "=" * 80 + "\n")
+            
+            # Create a completely fresh analyzer instance for each PDF - true independence
+            file_analyzer = EnhancedChaseStatementAnalyzer()
+            
+            # Set up master categorization for this specific file (same as individual processing)
+            file_master_file = None
+            if args.master or args.master_file:
+                if args.master_file:
+                    # If an explicit master file is provided, check if it's just the filename
+                    # and if so, prefer the directory-specific version if it exists
+                    if os.path.basename(args.master_file) == args.master_file:
+                        pdf_dir = os.path.dirname(pdf_path) or '.'
+                        dir_master_file = os.path.join(pdf_dir, args.master_file)
+                        if os.path.exists(dir_master_file):
+                            file_master_file = dir_master_file
+                        else:
+                            file_master_file = args.master_file
+                    else:
+                        file_master_file = args.master_file
+                else:
+                    pdf_dir = os.path.dirname(pdf_path) or '.'
+                    # First try directory-specific master file
+                    dir_master_file = os.path.join(pdf_dir, 'categories.master')
+                    if os.path.exists(dir_master_file):
+                        file_master_file = dir_master_file
+                    else:
+                        # Fall back to current directory
+                        file_master_file = 'categories.master'
+                
+                file_analyzer.master_file = file_master_file
+                if not args.summary_only:
+                    print(f"   📋 Using master file: {file_master_file}")
+            
+            # Process this PDF file completely independently 
+            file_analyzer.process_pdf_file(pdf_path, create_csv=args.csv, use_master=bool(file_master_file), interactive=args.interactive, summary_only=args.summary_only)
+            
+            if not args.summary_only:
+                print("\n" + "=" * 80 + "\n")
             
     elif args.pdf_file:
         # Process single PDF file
