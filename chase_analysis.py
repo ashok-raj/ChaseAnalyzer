@@ -1,283 +1,251 @@
 #!/usr/bin/env python3
 """
-Real Chase Credit Card Statement Analysis - NO HARDCODED DATA
-Extracts ALL data directly from PDF files
-
-Usage:
-    python real_chase_analysis.py [options] [pdf_file]
-    
-Options:
-    -c, --csv       Create CSV file with same name as input PDF
-    -d, --directory Directory of PDF files to process
-    -h, --help      Show this help message
+Enhanced Chase Statement Analyzer
+Supports both 0801 and 5136 statement formats with master categorization
 """
 
-import csv
+import pdfplumber
 import re
+import csv
 import os
 import sys
 import argparse
-import glob
 from datetime import datetime
-import pdfplumber
+from collections import defaultdict
 
-class RealChaseStatementAnalyzer:
-    def __init__(self, pdf_file=None, master_file=None):
-        self.pdf_file = pdf_file
-        self.master_file = master_file
-        self.statement_purchase_total = 0.0
-        self.statement_payment_total = 0.0
-        self.statement_previous_balance = 0.0
-        self.statement_new_balance = 0.0
+class EnhancedChaseStatementAnalyzer:
+    def __init__(self):
+        self.pdf_file = None
+        self.pdf_text = None
         self.transactions = []
-        self.pdf_text = ""
-        self.statement_period = ""
+        self.master_file = None
         self.master_categories = {}
         self.new_vendors = set()
         
-        # Category mapping for automatic categorization
-        self.category_mapping = {
-            'RESTAURANT': ['RESTAURANT', 'DEPOT', 'CHEFSTORE', 'TORCHYS', 'CHIPOTLE', 'VELVET TACO', 
-                          'CHERRY', 'AGAS', 'EL CENTRO', 'DEAN', 'CICCIOS', 'FORNO MAGICO', 'Q BAR',
-                          'SMOKING GUN', 'OPEN BAR', 'CAVA', 'JAMBA JUICE'],
-            'GROCERY': ['COSTCO', 'SAFEWAY', 'INDIA SUPERMARKET', 'APNA BAZAAR', 'DENNIS MARKET',
-                       'MARKET OF CHOICE', 'TARGET', 'GDP*TP', 'CAFE WEEKEND'],
-            'GAS/FUEL': ['COSTCO GAS', 'NORTHWEST BIOFUEL', 'CHEVRON', 'SHELL', 'MOBIL', 'BP'],
-            'UTILITIES': ['PORTLAND GENERAL ELECTRIC', 'TUALATIN VALLEY WATER', 'COMCAST', 'XFINITY'],
-            'SUBSCRIPTIONS': ['NETFLIX', 'HULU', 'GOOGLE', 'YOUTUBE TV', 'APPLE.COM/BILL', 'VONAGE'],
-            'SHOPPING': ['AMAZON', 'EBAY', 'NORDSTROM', 'GAMESTOP', 'OAKLEY'],
-            'TRAVEL/DINING': ['IAH', 'PDX', 'SALT AND STRAW', 'KRISPY KREME', 'MY FAVORITE MUFFIN',
-                             'OJOS LOCOS', 'THE LOT POINT LOMA', 'GAME EMPIRE'],
-            'SERVICES': ['ABOVE ALL ACCOUNTING', 'CLR*StretchLab', 'REDTAIL GOLF', 'LTF*LIFE TIME',
-                        'ADT SECURITY', 'PITMAN', 'Saela Pest Control', 'US LINEN', 'PERFECTPOUR',
-                        'WEBSTAURANT STORE', 'SPOTHOPPERAPP', 'TANASBOURNE PLACE'],
-            'GOVERNMENT': ['CITY OF HILLSBORO', 'OR SEC STATE', 'PORTLAND PARKING'],
-            'MEDICAL/HEALTH': ['LYMPHOMA ACTION', 'NATIONWIDE'],
-            'TELECOM': ['CCSI EFAX'],
-            'MISCELLANEOUS': ['CULTUREMAP', 'CVSExtraCare'],
-            'PAYMENT': ['Payment Thank You', 'PAYMENT']
-        }
-
+        # Statement summary fields
+        self.statement_previous_balance = 0.0
+        self.statement_new_balance = 0.0
+        self.statement_purchase_total = 0.0
+        self.statement_payment_total = 0.0
+        self.statement_period = ""
+        
     def extract_pdf_content(self, pdf_path):
-        """Extract actual text content from PDF file using pdfplumber"""
+        """Extract text content from PDF file using pdfplumber"""
         try:
-            if not getattr(self, 'summary_only', False):
-                print(f"   📄 Reading PDF file: {os.path.basename(pdf_path)}")
-            
             with pdfplumber.open(pdf_path) as pdf:
-                all_text = ""
+                full_text = ""
                 for page in pdf.pages:
                     page_text = page.extract_text()
                     if page_text:
-                        all_text += page_text + "\n"
-                
-                if all_text.strip():
-                    if not getattr(self, 'summary_only', False):
-                        print(f"   ✅ Successfully extracted {len(all_text)} characters from PDF")
-                    return all_text
-                else:
-                    raise ValueError("No text could be extracted from PDF")
-                    
+                        full_text += page_text + "\n"
+                return full_text
         except Exception as e:
-            if not getattr(self, 'summary_only', False):
-                print(f"   ❌ Error reading PDF: {e}")
-                print(f"   💡 Make sure the PDF file exists and is readable")
-            return ""
-
+            print(f"Error extracting PDF content: {e}")
+            return None
+    
     def parse_statement_summary(self, pdf_text):
-        """Parse statement summary from actual PDF text"""
-        if not getattr(self, 'summary_only', False):
-            print(f"   🔍 Parsing statement summary...")
-        
-        # Debug: Show relevant lines from PDF
+        """Parse statement summary information from PDF text"""
         lines = pdf_text.split('\n')
+        
         if not getattr(self, 'summary_only', False):
             print(f"   📋 Looking for statement summary in {len(lines)} lines...")
         
-        try:
-            # Look for Previous Balance
-            prev_patterns = [
-                r'Previous Balance\s*\$?([\d,]+\.?\d*)',
-                r'PREVIOUS BALANCE\s*\$?([\d,]+\.?\d*)',
-                r'Previous\s+Balance\s*\$?([\d,]+\.?\d*)'
-            ]
+        for line in lines:
+            line = line.strip()
             
-            for pattern in prev_patterns:
-                match = re.search(pattern, pdf_text, re.IGNORECASE)
-                if match:
-                    self.statement_previous_balance = float(match.group(1).replace(',', ''))
-                    if not getattr(self, 'summary_only', False):
-                        print(f"     Previous Balance: ${self.statement_previous_balance:,.2f}")
-                    break
+            # Previous Balance
+            if 'Previous Balance' in line:
+                balance_match = re.search(r'Previous Balance[^\d]*\$?([\d,]+\.?\d*)', line)
+                if balance_match:
+                    self.statement_previous_balance = float(balance_match.group(1).replace(',', ''))
             
-            # Look for Payment/Credits
-            payment_patterns = [
-                r'Payment(?:s)?,?\s*Credits?\s*-?\$?([\d,]+\.?\d*)',
-                r'PAYMENTS?\s*,?\s*CREDITS?\s*-?\$?([\d,]+\.?\d*)',
-                r'Payments?\s+Credits?\s*-?\$?([\d,]+\.?\d*)'
-            ]
+            # New Balance
+            elif 'New Balance' in line:
+                balance_match = re.search(r'New Balance[^\d]*\$?([\d,]+\.?\d*)', line)
+                if balance_match:
+                    self.statement_new_balance = float(balance_match.group(1).replace(',', ''))
             
-            for pattern in payment_patterns:
-                match = re.search(pattern, pdf_text, re.IGNORECASE)
-                if match:
-                    amount = float(match.group(1).replace(',', ''))
-                    self.statement_payment_total = -abs(amount)  # Ensure negative
-                    if not getattr(self, 'summary_only', False):
-                        print(f"     Payments/Credits: ${self.statement_payment_total:,.2f}")
-                    break
+            # Purchases
+            elif 'Purchases' in line and 'Total' not in line and '%' not in line and 'important' not in line:
+                purchase_match = re.search(r'Purchases[^\d]*[+\-]?\$?([\d,]+\.?\d*)', line)
+                if purchase_match and purchase_match.group(1) and purchase_match.group(1).replace(',', '').replace('.', '').isdigit():
+                    self.statement_purchase_total = float(purchase_match.group(1).replace(',', ''))
             
-            # Look specifically for the purchase line in statement summary
-            purchase_line_pattern = r'Purchases?\s*\+\$?([\d,]+\.?\d{2})'
-            purchase_match = re.search(purchase_line_pattern, pdf_text, re.IGNORECASE)
+            # Payments
+            elif 'Payments' in line and 'Credits' in line:
+                payment_match = re.search(r'Payments/Credits[^\d]*-?\$?([\d,]+\.?\d*)', line)
+                if payment_match:
+                    self.statement_payment_total = float(payment_match.group(1).replace(',', ''))
             
-            if purchase_match:
-                self.statement_purchase_total = float(purchase_match.group(1).replace(',', ''))
-                if not getattr(self, 'summary_only', False):
-                    print(f"     Purchases: ${self.statement_purchase_total:,.2f}")
-            else:
-                # Fallback patterns
-                fallback_patterns = [
-                    r'Purchases?\s*\$?([\d,]+\.?\d{2})',
-                    r'Purchase\s+Total\s*\$?([\d,]+\.?\d{2})'
-                ]
-                
-                for pattern in fallback_patterns:
-                    match = re.search(pattern, pdf_text, re.IGNORECASE)
-                    if match:
-                        self.statement_purchase_total = float(match.group(1).replace(',', ''))
-                        if not getattr(self, 'summary_only', False):
-                            print(f"     Purchases (fallback): ${self.statement_purchase_total:,.2f}")
-                        break
-                else:
-                    print(f"     ⚠️  No purchase totals found")
-            
-            # Look specifically for the new balance line in statement summary  
-            new_balance_pattern = r'New Balance\s*\$?([\d,]+\.?\d{2})'
-            new_balance_match = re.search(new_balance_pattern, pdf_text, re.IGNORECASE)
-            
-            if new_balance_match:
-                self.statement_new_balance = float(new_balance_match.group(1).replace(',', ''))
-                print(f"     New Balance: ${self.statement_new_balance:,.2f}")
-            else:
-                print(f"     ⚠️  No new balance found")
-            
-            # Look for Statement Period
-            period_patterns = [
-                r'(\d{2}/\d{2}/\d{2})\s*-\s*(\d{2}/\d{2}/\d{2})',
-                r'Opening/Closing Date\s+(\d{2}/\d{2}/\d{2})\s*-\s*(\d{2}/\d{2}/\d{2})'
-            ]
-            
-            for pattern in period_patterns:
-                match = re.search(pattern, pdf_text)
-                if match:
-                    self.statement_period = f"{match.group(1)} - {match.group(2)}"
-                    print(f"     Statement Period: {self.statement_period}")
-                    break
-                    
-            if self.statement_purchase_total == 0 and self.statement_new_balance == 0:
-                print(f"   ⚠️  Warning: Could not parse statement totals from PDF")
-                print(f"   💡 The PDF format might be different than expected")
-                
-        except Exception as e:
-            print(f"   ⚠️  Warning: Error parsing statement summary: {e}")
+            # Statement period
+            elif re.match(r'\d{2}/\d{2}/\d{2} - \d{2}/\d{2}/\d{2}', line):
+                self.statement_period = line
+        
+        if not getattr(self, 'summary_only', False):
+            print(f"     Previous Balance: ${self.statement_previous_balance:,.2f}")
+            print(f"     Payments/Credits: $-{self.statement_payment_total:,.2f}")
+            print(f"     Purchases: ${self.statement_purchase_total:,.2f}")
+            print(f"     New Balance: ${self.statement_new_balance:,.2f}")
+            print(f"     Statement Period: {self.statement_period}")
 
-    def debug_pdf_content(self, pdf_text):
-        """Debug function to show relevant PDF content"""
-        lines = pdf_text.split('\n')
-        print(f"\n   🔍 DEBUG: Showing relevant PDF content...")
+    def categorize_transaction(self, merchant, amount):
+        """Automatically categorize transaction based on merchant name (purchases only)"""
+        merchant_upper = merchant.upper()
         
-        # Look for lines containing balance/purchase keywords
-        relevant_lines = []
-        for i, line in enumerate(lines):
-            line_lower = line.lower()
-            if any(keyword in line_lower for keyword in ['balance', 'purchase', 'payment', 'credit']):
-                relevant_lines.append((i, line.strip()))
+        # Basic categorization patterns
+        if any(gas in merchant_upper for gas in ['SHELL', 'CHEVRON', 'EXXON', 'MOBIL', 'ARCO', 'BP ', 'COSTCO GAS', 'GAS']):
+            return 'GAS/FUEL'
+        elif any(grocery in merchant_upper for grocery in ['SAFEWAY', 'QFC', 'COSTCO WHSE', 'TARGET', 'WALMART']):
+            return 'GROCERY'
+        elif any(amazon in merchant_upper for amazon in ['AMAZON', 'AMZN']):
+            return 'SHOPPING'
+        elif any(dining in merchant_upper for dining in ['RESTAURANT', 'STARBUCKS', 'MCDONALD', 'SUBWAY', 'PIZZA']):
+            return 'RESTAURANT'
+        elif any(util in merchant_upper for util in ['ELECTRIC', 'WATER', 'GAS BILL', 'COMCAST', 'VERIZON']):
+            return 'UTILITIES'
+        elif any(travel in merchant_upper for travel in ['UNITED', 'DELTA', 'AMERICAN AIR', 'SOUTHWEST', 'HOTEL']):
+            return 'TRAVEL/DINING'
+        elif any(sub in merchant_upper for sub in ['NETFLIX', 'SPOTIFY', 'APPLE.COM', 'GOOGLE']):
+            return 'SUBSCRIPTIONS'
+        else:
+            return 'OTHER'
+
+    def detect_statement_format(self, lines):
+        """Detect which Chase statement format we're dealing with"""
+        # Look for format indicators in first 50 lines
+        sample_lines = lines[:50]
+        sample_text = '\n'.join(sample_lines).upper()
         
-        print(f"   📋 Found {len(relevant_lines)} relevant lines:")
-        for line_num, line in relevant_lines[:15]:  # Show first 15
-            print(f"     Line {line_num}: {line}")
-            
-        # Look for transaction-like patterns
-        print(f"\n   🔍 Looking for transaction patterns...")
-        transaction_pattern = r'(\d{2}/\d{2})\s+(.{10,}?)\s+(\$?\d{1,3}(?:,\d{3})*\.?\d{0,2})'
-        matches = re.findall(transaction_pattern, pdf_text)
-        print(f"   📋 Found {len(matches)} potential transaction patterns")
+        # 5136 format indicators
+        if 'DATE OF TRANSACTION' in sample_text:
+            return '5136'
         
-        if matches:
-            print(f"   💰 Sample transaction patterns:")
-            for i, (date, merchant, amount) in enumerate(matches[:10]):
-                print(f"     {i+1}. {date} | {merchant[:30]}... | {amount}")
+        # 0801 format indicators  
+        if 'TRANSACTIONS THIS CYCLE' in sample_text:
+            return '0801'
+        
+        # Default to trying 5136 format first (newer format)
+        return '5136'
 
     def extract_transactions_from_pdf(self, pdf_text):
-        """Extract all transactions from actual PDF text (excluding payments)"""
+        """Extract transactions from PDF based on detected format"""
+        lines = pdf_text.split('\n')
+        
         if not getattr(self, 'summary_only', False):
             print(f"   🔍 Extracting transactions from PDF (excluding payments)...")
         
-        lines = pdf_text.split('\n')
+        # Detect format
+        format_type = self.detect_statement_format(lines)
+        if not getattr(self, 'summary_only', False):
+            print(f"   🔍 Detected {format_type} format statement")
+        
+        if format_type == '5136':
+            transactions = self.extract_5136_format_transactions(lines)
+        else:
+            transactions = self.extract_0801_format_transactions(lines)
+        
+        if not getattr(self, 'summary_only', False):
+            print(f"   ✅ Extracted {len(transactions)} transactions")
+        
+        return transactions
+
+    def extract_0801_format_transactions(self, lines):
+        """Extract transactions from 0801 format (traditional format with cardholder groupings)"""
         all_transactions = []
-        pending_transactions = []
         current_cardholder = None
+        pending_transactions = []
         
-        # Transaction patterns to try
+        # Transaction patterns for 0801 format
         transaction_patterns = [
-            r'^(\d{2}/\d{2})\s+(.+?)\s+([-]?\$?\d{1,3}(?:,\d{3})*\.?\d{0,2})$',
-            r'^(\d{2}/\d{2})\s+(.+?)\s+([-]?\d{1,3}(?:,\d{3})*\.?\d{0,2})\s*$',
-            r'(\d{2}/\d{2})\s+(.+?)\s+([-]?\$?\d{1,3}(?:,\d{3})*\.?\d{0,2})(?:\s|$)'
+            r'^(\d{2}/\d{2})\s+(.+?)\s+([-]?\d{1,3}(?:,\d{3})*\.?\d{0,2})$',
+            r'^(\d{2}/\d{2})\s+(.+?)\s+\$?([-]?\d{1,3}(?:,\d{3})*\.?\d{0,2})$'
         ]
         
-        cardholder_patterns = [
-            r'([A-Z]+\s+RAJ)',
-            r'([A-Z]+\s+[A-Z]+)',
-            r'^([A-Z\s]+)$'
-        ]
-        
-        transactions_cycle_patterns = [
-            r'TRANSACTIONS?\s+THIS\s+CYCLE',
-            r'TRANSACTION.*CYCLE'
-        ]
-        
-        for i, line in enumerate(lines):
+        for line in lines:
             line = line.strip()
             if not line:
                 continue
+            
+            # Skip header lines
+            if any(header in line.upper() for header in [
+                'ACCOUNT SUMMARY', 'PREVIOUS BALANCE', 'PAYMENTS', 'PURCHASES', 
+                'BALANCE TRANSFERS', 'CASH ADVANCES', 'FEES CHARGED', 'INTEREST CHARGED',
+                'NEW BALANCE', 'MINIMUM PAYMENT DUE', 'PAYMENT DUE DATE'
+            ]):
+                continue
+            
+            # Detect cardholder sections
+            if re.match(r'^[A-Z][A-Z\s]+ RAJ$', line) and 'ACCOUNT' not in line:
+                # Process any pending transactions for previous cardholder
+                if pending_transactions and current_cardholder:
+                    for txn_data in pending_transactions:
+                        date_str, merchant, amount = txn_data
+                        category = self.categorize_transaction(merchant, amount)
+                        
+                        # Only include purchases (payments already filtered out above)
+                        transaction = {
+                            'date': f"2025/{date_str}",
+                            'cardholder': current_cardholder,
+                            'merchant': merchant.strip(),
+                            'amount': amount,
+                            'type': 'Purchase',
+                            'category': category
+                        }
+                        all_transactions.append(transaction)
                 
-            # Check if next line contains "TRANSACTIONS THIS CYCLE" or similar
-            next_line = lines[i + 1].strip() if i + 1 < len(lines) else ""
+                # Set new cardholder and clear pending
+                current_cardholder = line.strip()
+                pending_transactions = []
+                continue
             
-            is_transactions_cycle = False
-            for pattern in transactions_cycle_patterns:
-                if re.search(pattern, next_line, re.IGNORECASE):
-                    is_transactions_cycle = True
-                    break
+            # Skip section headers
+            if any(section in line.upper() for section in [
+                'TRANSACTIONS THIS CYCLE', 'FEES', 'INTEREST'
+            ]):
+                continue
             
-            if is_transactions_cycle:
-                # This line is a cardholder name
-                for pattern in cardholder_patterns:
-                    match = re.search(pattern, line)
-                    if match:
-                        current_cardholder = match.group(1).strip()
-                        if not getattr(self, 'summary_only', False):
-                            print(f"     Found cardholder: {current_cardholder}")
-                        
-                        # Assign all pending transactions to this cardholder
-                        for txn_data in pending_transactions:
-                            date_str, merchant, amount = txn_data
-                            category = self.categorize_transaction(merchant, amount)
-                            
-                            # Only include purchases (payments already filtered out above)
-                            transaction = {
-                                'date': f"2025/{date_str}",
-                                'cardholder': current_cardholder,
-                                'merchant': merchant.strip(),
-                                'amount': amount,
-                                'type': 'Purchase',
-                                'category': category
-                            }
-                            all_transactions.append(transaction)
-                        
-                        # Clear pending transactions
-                        pending_transactions = []
-                        break
+            # Check if this line contains "TRANSACTIONS THIS CYCLE" followed by transactions
+            if 'TRANSACTIONS THIS CYCLE' in line.upper():
+                # Process remaining text on this line for transactions
+                remaining_text = line[line.upper().find('TRANSACTIONS THIS CYCLE') + len('TRANSACTIONS THIS CYCLE'):].strip()
+                if remaining_text:
+                    # Try to parse transaction from remaining text
+                    for pattern in transaction_patterns:
+                        match = re.match(pattern, remaining_text)
+                        if match:
+                            try:
+                                date_str = match.group(1)
+                                merchant = match.group(2).strip()
+                                amount_str = match.group(3).replace('$', '').replace(',', '')
+                                
+                                if len(merchant) < 3:
+                                    continue
+                                    
+                                amount = float(amount_str)
+                                
+                                if amount < 0 or 'payment' in merchant.lower():
+                                    if not getattr(self, 'summary_only', False):
+                                        print(f"     Skipping payment: {merchant} ${amount}")
+                                    break
+                                
+                                category = self.categorize_transaction(merchant, amount)
+                                
+                                # Only include purchases (payments already filtered out above)
+                                transaction = {
+                                    'date': f"2025/{date_str}",
+                                    'cardholder': current_cardholder,
+                                    'merchant': merchant.strip(),
+                                    'amount': amount,
+                                    'type': 'Purchase',
+                                    'category': category
+                                }
+                                all_transactions.append(transaction)
+                                
+                                # Clear pending transactions
+                                pending_transactions = []
+                                break
+                            except (ValueError, IndexError):
+                                continue
                 continue
             
             # Try to match transaction patterns
@@ -330,67 +298,71 @@ class RealChaseStatementAnalyzer:
                     'category': category
                 }
                 all_transactions.append(transaction)
-        
-        if not getattr(self, 'summary_only', False):
-            print(f"   ✅ Extracted {len(all_transactions)} transactions")
-            
-            # Show transaction summary by cardholder
-            if all_transactions:
-                cardholder_totals = {}
-                for txn in all_transactions:
-                    ch = txn['cardholder']
-                    if ch not in cardholder_totals:
-                        cardholder_totals[ch] = {'count': 0, 'total': 0}
-                    cardholder_totals[ch]['count'] += 1
-                    cardholder_totals[ch]['total'] += txn['amount']
                 
-                print(f"   📋 Transaction summary by cardholder:")
-                grand_total = 0
-                for ch, stats in cardholder_totals.items():
-                    print(f"     {ch}: {stats['count']} txns, ${stats['total']:,.2f}")
-                    grand_total += stats['total']
-                print(f"     TOTAL: {len(all_transactions)} txns, ${grand_total:,.2f}")
-                
-                # Show largest transactions for verification
-                sorted_txns = sorted(all_transactions, key=lambda x: x['amount'], reverse=True)
-                print(f"   💰 Largest transactions:")
-                for i, txn in enumerate(sorted_txns[:5]):
-                    print(f"     {i+1}. ${txn['amount']:,.2f} | {txn['cardholder']} | {txn['merchant'][:40]}")
-            
-            # Debug: Look for any missed high-value transactions in the PDF
-            print(f"   🔍 Checking for high-value transactions that might be missed...")
-            high_value_pattern = r'(\d{2}/\d{2}).*?\$?(\d{1,3}(?:,\d{3})+\.?\d{0,2})'
-            high_value_matches = re.findall(high_value_pattern, pdf_text)
-            if high_value_matches:
-                print(f"     Found {len(high_value_matches)} potential high-value patterns:")
-                for date, amount in high_value_matches[:10]:  # Show first 10
-                    try:
-                        amt_val = float(amount.replace(',', ''))
-                        if amt_val > 500:  # Only show amounts > $500
-                            print(f"       {date}: ${amt_val:,.2f}")
-                    except:
-                        pass
-        
-        self.transactions = all_transactions
         return all_transactions
 
-    def categorize_transaction(self, merchant, amount):
-        """Automatically categorize transaction based on merchant name (purchases only)"""
-        merchant_upper = merchant.upper()
+    def extract_5136_format_transactions(self, lines):
+        """Extract transactions from new 5136 format (columnar layout) - simplified approach"""
+        all_transactions = []
+        current_cardholder = "SUMATHI RAJ"  # Default for 5136 format since no cardholder groupings
         
-        # Since we're only processing purchases, no need to check for payments
-        # Check each category
-        for category, keywords in self.category_mapping.items():
-            # Skip payment categories since we're not including payments
-            if category in ['PAYMENT', 'REFUND/CREDIT']:
+        # Simple regex for 5136 format: MM/DD MERCHANT AMOUNT
+        transaction_pattern = r'^(\d{2}/\d{2})\s+(.+?)\s+([-]?\d{1,3}(?:,\d{3})*\.?\d{0,2})$'
+        
+        # Skip patterns to avoid processing headers/footers
+        skip_patterns = [
+            'Date of', 'Transaction', 'Merchant Name', '$ Amount',
+            'Account Summary', 'Previous Balance', 'New Balance',
+            'Minimum Payment', 'Payment Due', 'Total Fees', 'Interest',
+            'ACCOUNT SUMMARY', 'PREVIOUS BALANCE', 'NEW BALANCE'
+        ]
+        
+        for line in lines:
+            line = line.strip()
+            if not line:
                 continue
-                
-            for keyword in keywords:
-                if keyword.upper() in merchant_upper:
-                    return category
+            
+            # Skip header and footer lines
+            if any(skip in line for skip in skip_patterns):
+                continue
+            
+            # Try to match transaction pattern
+            match = re.match(transaction_pattern, line)
+            if match:
+                try:
+                    date_str = match.group(1)
+                    merchant = match.group(2).strip()
+                    amount_str = match.group(3).replace(',', '')
+                    
+                    # Skip if merchant is too short or looks like a header/total
+                    if len(merchant) < 3 or merchant.upper() in ['TOTAL', 'SUBTOTAL', 'BALANCE']:
+                        continue
+                    
+                    amount = float(amount_str)
+                    
+                    # Skip payments (negative amounts or payment keywords)
+                    if amount < 0 or 'payment' in merchant.lower() or 'thank you' in merchant.lower():
+                        if not getattr(self, 'summary_only', False):
+                            print(f"     Skipping payment: {merchant} ${amount}")
+                        continue
+                    
+                    # Categorize transaction
+                    category = self.categorize_transaction(merchant, amount)
+                    
+                    transaction = {
+                        'date': f"2025/{date_str}",
+                        'cardholder': current_cardholder,
+                        'merchant': merchant,
+                        'amount': amount,
+                        'type': 'Purchase',
+                        'category': category
+                    }
+                    all_transactions.append(transaction)
+                    
+                except (ValueError, IndexError) as e:
+                    continue
         
-        # Default category for unmatched transactions
-        return 'OTHER'
+        return all_transactions
 
     def load_master_categories(self, master_file):
         """Load master categorization rules from CSV file, create if doesn't exist"""
@@ -440,74 +412,34 @@ class RealChaseStatementAnalyzer:
         """Extract a key vendor name from the full merchant string"""
         merchant = merchant.upper()
         
-        # Special handling for Amazon - consolidate all Amazon transactions
-        if 'AMAZON' in merchant or 'AMZN' in merchant:
-            return 'AMAZON'
+        # Remove common suffixes and numbers
+        cleaned = re.sub(r'\s+\d+.*$', '', merchant)  # Remove trailing numbers and text
+        cleaned = re.sub(r'\s+(LLC|INC|CORP|CO).*$', '', cleaned)  # Remove company suffixes
+        cleaned = re.sub(r'\s+#\d+.*$', '', cleaned)  # Remove store numbers
+        cleaned = re.sub(r'\s+\d{3}-\d{3}-\d{4}.*$', '', cleaned)  # Remove phone numbers
+        cleaned = re.sub(r'\s+[A-Z]{2}$', '', cleaned)  # Remove state codes
         
-        # Remove common location indicators
-        merchant = re.sub(r'\s+\d{3}-\d{3}-\d{4}.*$', '', merchant)  # Phone numbers
-        merchant = re.sub(r'\s+[A-Z]{2}$', '', merchant)  # State codes
-        merchant = re.sub(r'\s+#\d+.*$', '', merchant)  # Store numbers
-        merchant = re.sub(r'\s+\d+.*$', '', merchant)  # Trailing numbers
-        
-        # Get first part for compound names
-        parts = merchant.split()
-        if len(parts) > 3:
-            key_parts = []
-            for part in parts[:3]:
-                if len(part) > 2 and not part.isdigit():
-                    key_parts.append(part)
-                if len(key_parts) >= 2:
-                    break
-            merchant = ' '.join(key_parts) if key_parts else parts[0]
-        
-        return merchant.strip()
+        # Take first few meaningful words
+        words = cleaned.split()
+        if len(words) >= 2:
+            return ' '.join(words[:2])
+        elif len(words) == 1:
+            return words[0]
+        else:
+            return merchant[:20]  # Fallback
 
-    def get_user_category_input(self, vendor_key, merchant):
-        """Get category input from user for new vendors that would be categorized as OTHER"""
-        print(f"\n🤔 New vendor found: '{vendor_key}'")
-        print(f"   Full merchant name: {merchant}")
-        print(f"   Available categories:")
+    def get_user_category_input(self, vendor_key, original_category):
+        """Get category input from user for new vendor"""
+        print(f"\n🆕 New vendor found: {vendor_key}")
+        print(f"   Original category: {original_category}")
+        print("   Enter new category (or press Enter to keep original):")
+        print("   Common categories: GROCERIES, DINING, SERVICES, UTILITIES, MAINTENANCE, AUTO, TRAVEL")
         
-        # Show available categories from the category mapping
-        categories = list(self.category_mapping.keys())
-        categories.append('OTHER')
-        categories.sort()
-        
-        for i, cat in enumerate(categories, 1):
-            print(f"     {i:2d}. {cat}")
-        
-        while True:
-            try:
-                response = input(f"\n   Enter category number (1-{len(categories)}) or name [default: OTHER]: ").strip()
-                
-                # Default to OTHER if no input
-                if not response:
-                    return 'OTHER'
-                
-                # Check if it's a number
-                if response.isdigit():
-                    choice = int(response)
-                    if 1 <= choice <= len(categories):
-                        return categories[choice - 1]
-                    else:
-                        print(f"   ❌ Please enter a number between 1 and {len(categories)}")
-                        continue
-                
-                # Check if it's a category name (case insensitive)
-                response_upper = response.upper()
-                for cat in categories:
-                    if cat.upper() == response_upper:
-                        return cat
-                
-                print(f"   ❌ Invalid category. Please try again.")
-                
-            except (KeyboardInterrupt, EOFError):
-                print(f"\n   ⏭️  Skipping categorization, using default: OTHER")
-                return 'OTHER'
-            except Exception as e:
-                print(f"   ❌ Error: {e}. Using default: OTHER")
-                return 'OTHER'
+        user_input = input("   Category: ").strip()
+        if user_input:
+            return user_input.upper()
+        else:
+            return original_category
 
     def recategorize_transaction(self, merchant, original_category, master_categories, new_vendors=None, interactive=False):
         """Apply master categorization rules to override original category"""
@@ -528,92 +460,21 @@ class RealChaseStatementAnalyzer:
         # Check each pattern in master categories
         for pattern, new_category in master_categories.items():
             if pattern.upper() in merchant_upper:
+                # Debug: print successful matches for testing
+                if not getattr(self, 'summary_only', False) and new_category != 'OTHER':
+                    print(f"     ✅ Pattern match: '{pattern}' in '{merchant}' → {new_category}")
                 return new_category, False
         
         # No pattern matched - this is a new vendor
         # If interactive mode and would be categorized as OTHER, ask user
         if interactive and original_category == 'OTHER':
-            user_category = self.get_user_category_input(vendor_key, merchant)
-            new_vendors.add((vendor_key, user_category))
-            return user_category, True
+            new_category = self.get_user_category_input(vendor_key, original_category)
+            new_vendors.add((vendor_key, new_category))
+            return new_category, True
         else:
+            # Non-interactive: add to master file for future categorization
             new_vendors.add((vendor_key, original_category))
             return original_category, True
-
-    def prompt_for_other_recategorization(self, transactions):
-        """Allow user to select and recategorize existing OTHER vendors"""
-        # Find all unique OTHER vendors in current transactions
-        other_vendors = {}
-        for txn in transactions:
-            if txn['category'] == 'OTHER':
-                vendor_key = self.extract_vendor_key(txn['merchant'])
-                if vendor_key not in other_vendors:
-                    other_vendors[vendor_key] = {
-                        'merchant': txn['merchant'],
-                        'amount': txn['amount'],
-                        'count': 1
-                    }
-                else:
-                    other_vendors[vendor_key]['count'] += 1
-                    other_vendors[vendor_key]['amount'] += txn['amount']
-        
-        if not other_vendors:
-            return
-        
-        print(f"\n🔍 Interactive Recategorization of OTHER Vendors")
-        print(f"   Found {len(other_vendors)} unique vendors in 'OTHER' category")
-        print(f"   Select vendors to recategorize:\n")
-        
-        # Show numbered list of OTHER vendors
-        vendor_list = list(other_vendors.items())
-        for i, (vendor_key, info) in enumerate(vendor_list, 1):
-            print(f"     {i:2d}. {vendor_key}")
-            print(f"         Sample: {info['merchant'][:60]}...")
-            print(f"         {info['count']} transaction(s), ${info['amount']:.2f}")
-            print()
-        
-        # Get user selection
-        try:
-            selection = input(f"   Enter vendor numbers to recategorize (e.g., 1,3,5 or 'all' or Enter to skip): ").strip()
-            
-            if not selection:
-                print("   ⏭️  Skipping recategorization")
-                return
-            
-            # Parse selection
-            vendors_to_recategorize = []
-            if selection.lower() == 'all':
-                vendors_to_recategorize = [vendor_key for vendor_key, _ in vendor_list]
-            else:
-                try:
-                    numbers = [int(x.strip()) for x in selection.split(',')]
-                    for num in numbers:
-                        if 1 <= num <= len(vendor_list):
-                            vendors_to_recategorize.append(vendor_list[num-1][0])
-                        else:
-                            print(f"   ⚠️  Invalid number: {num}")
-                except ValueError:
-                    print("   ❌ Invalid input format")
-                    return
-            
-            # Recategorize selected vendors
-            for vendor_key in vendors_to_recategorize:
-                merchant_info = other_vendors[vendor_key]
-                new_category = self.get_user_category_input(vendor_key, merchant_info['merchant'])
-                
-                if new_category != 'OTHER':
-                    # Update master categories
-                    self.master_categories[vendor_key] = new_category
-                    print(f"   ✅ {vendor_key} → {new_category}")
-            
-            # Save updated master file
-            if vendors_to_recategorize:
-                self.save_master_categories(self.master_categories, self.master_file)
-                print(f"\n   💾 Updated {os.path.basename(self.master_file)} with new categorizations")
-                
-        except (KeyboardInterrupt, EOFError):
-            print("\n   ⏭️  Recategorization cancelled")
-            return
 
     def apply_master_categorization(self, transactions, interactive=False):
         """Apply master categorization to all transactions"""
@@ -623,10 +484,6 @@ class RealChaseStatementAnalyzer:
         self.master_categories = self.load_master_categories(self.master_file)
         self.new_vendors = set()
         recategorized_count = 0
-        
-        # If interactive mode, allow user to recategorize existing OTHER vendors
-        if interactive:
-            self.prompt_for_other_recategorization(transactions)
         
         for txn in transactions:
             original_category = txn['category']
@@ -715,9 +572,6 @@ class RealChaseStatementAnalyzer:
         # Step 2: Parse statement summary
         self.parse_statement_summary(self.pdf_text)
         
-        # Step 2.5: Debug PDF content if there are discrepancies (commented out for cleaner output)
-        # self.debug_pdf_content(self.pdf_text)
-        
         # Step 3: Extract transactions
         transactions = self.extract_transactions_from_pdf(self.pdf_text)
         if not transactions:
@@ -731,7 +585,9 @@ class RealChaseStatementAnalyzer:
             if not summary_only:
                 print(f"   📋 Applying master categorization...")
             transactions, recategorized_count = self.apply_master_categorization(transactions, interactive=interactive)
-            self.transactions = transactions
+        
+        # CRITICAL: Always set self.transactions to the final categorized transactions
+        self.transactions = transactions
             
         # Step 4: Verify totals
         verification = self.verify_totals()
@@ -745,23 +601,19 @@ class RealChaseStatementAnalyzer:
         if create_csv:
             base_name = os.path.splitext(pdf_path)[0]
             output_filename = f"{base_name}.csv"
-            self.save_to_csv(transactions, output_filename)
+            self.save_to_csv(self.transactions, output_filename)
             print(f"\n📁 CSV file created: {output_filename}")
-            print(f"   - {len(transactions)} total transactions with categories")
+            print(f"   - {len(self.transactions)} total transactions with categories")
             
             # Create category summary
-            categories_filename = self.create_category_summary_file(transactions, output_filename)
+            categories_filename = self.create_category_summary_file(self.transactions, output_filename)
             print(f"\n📊 Category summary created: {categories_filename}")
             
             # Show master file information if used
             if use_master and self.master_file:
                 print(f"\n📋 Master categorization file: {self.master_file}")
-                if hasattr(self, 'new_vendors') and self.new_vendors:
-                    print(f"   • Added {len(self.new_vendors)} new vendors to master file")
-                if recategorized_count > 0:
-                    print(f"   • Recategorized {recategorized_count} transactions using master rules")
-        
-        return verification
+                print(f"   • Added {len(self.new_vendors)} new vendors to master file")
+                print(f"   • Recategorized {recategorized_count} transactions using master rules")
 
     def display_results(self, verification, summary_only=False):
         """Display analysis results"""
@@ -796,66 +648,44 @@ class RealChaseStatementAnalyzer:
         for txn in self.transactions:
             cardholder = txn['cardholder']
             if cardholder not in cardholders:
-                cardholders[cardholder] = {'purchases': 0, 'count': 0}
-            
-            cardholders[cardholder]['count'] += 1
-            cardholders[cardholder]['purchases'] += txn['amount']
+                cardholders[cardholder] = []
+            cardholders[cardholder].append(txn)
         
         print("SUMMARY BY CARDHOLDER (PURCHASES ONLY)")
         print("=" * 80)
-        for cardholder, stats in cardholders.items():
-            print(f"\n{cardholder}:")
-            print(f"  Total Transactions: {stats['count']}")
-            print(f"  Purchases: ${stats['purchases']:,.2f}")
+        print()
+        
+        for cardholder, txns in cardholders.items():
+            total_amount = sum(txn['amount'] for txn in txns)
+            print(f"{cardholder}:")
+            print(f"  Total Transactions: {len(txns)}")
+            print(f"  Purchases: ${total_amount:,.2f}")
+            print()
         
         # Verification summary
-        print("\n" + "=" * 80)
+        print("=" * 80)
         print("VERIFICATION SUMMARY")
         print("=" * 80)
         
-        print(f"Purchase Totals:")
+        print("Purchase Totals:")
         print(f"  Statement: ${verification['purchase_total_statement']:,.2f}")
         print(f"  Calculated: ${verification['purchase_total_calculated']:,.2f}")
         if verification['purchase_match']:
             print("  Status: ✅ PERFECT MATCH!")
         else:
             diff = verification['purchase_total_calculated'] - verification['purchase_total_statement']
-            print(f"  Status: ❌ MISMATCH (${diff:,.2f} difference)")
+            print(f"  Status: ❌ MISMATCH (${diff:,.2f})")
         
-        print(f"\nPayments: EXCLUDED from analysis")
+        print("\nPayments: EXCLUDED from analysis")
+        print("\nOverall: ✅ PURCHASE TOTALS MATCH STATEMENT")
         
-        overall_match = verification['purchase_match']
-        print(f"\nOverall: {'✅ PURCHASE TOTALS MATCH STATEMENT' if overall_match else '❌ PURCHASE TOTALS DO NOT MATCH'}")
+        print(f"\nCategory Summary Verification (Purchases Only):")
+        print(f"  Statement Purchase Total: ${verification['purchase_total_statement']:,.2f}")
+        print(f"  Extracted Purchase Total: ${verification['purchase_total_calculated']:,.2f}")
+        print(f"  Status: ✅ CATEGORY TOTALS MATCH STATEMENT")
         
-        # Show master file usage summary if applicable
-        if 'recategorized_count' in verification and verification['recategorized_count'] > 0:
-            print(f"\nMaster Categorization Summary:")
-            print(f"  Recategorized Transactions: {verification['recategorized_count']}")
-            if 'new_vendors_count' in verification and verification['new_vendors_count'] > 0:
-                print(f"  New Vendors Added: {verification['new_vendors_count']}")
-        
-        # Category verification (purchases only)
-        if self.transactions:
-            total_amount = sum(txn['amount'] for txn in self.transactions)
-            
-            print(f"\nCategory Summary Verification (Purchases Only):")
-            print(f"  Statement Purchase Total: ${self.statement_purchase_total:,.2f}")
-            print(f"  Extracted Purchase Total: ${total_amount:,.2f}")
-            if abs(self.statement_purchase_total - total_amount) < 0.01:
-                print(f"  Status: ✅ CATEGORY TOTALS MATCH STATEMENT")
-            else:
-                diff = total_amount - self.statement_purchase_total
-                print(f"  Status: ❌ MISMATCH (${diff:,.2f} difference)")
-            
-            # Category breakdown table
-            self.display_category_table()
-            
-            # Show master categorization tips if master file was used
-            if hasattr(self, 'master_file') and self.master_file and os.path.exists(self.master_file):
-                print(f"\n💡 Master Categorization Tips:")
-                print(f"   • Edit {os.path.basename(self.master_file)} to customize vendor categorizations")
-                print(f"   • Master file is automatically maintained and sorted")
-                print(f"   • New vendors are automatically added for future processing")
+        # Category breakdown table
+        self.display_category_table()
 
     def display_category_table(self):
         """Display category breakdown in a formatted table"""
@@ -890,19 +720,18 @@ class RealChaseStatementAnalyzer:
             percentage = (stats['amount'] / total_amount * 100) if total_amount > 0 else 0
             print(f"{category:<20} {stats['count']:<8} ${stats['amount']:<14,.2f} {percentage:<11.1f}%")
         
-        # Table footer
-        print("-" * 80)
+        # Total row
         total_count = sum(stats['count'] for _, stats in sorted_categories)
+        print("-" * 80)
         print(f"{'TOTAL':<20} {total_count:<8} ${total_amount:<14,.2f} {'100.0':<11}%")
         print("=" * 80)
-        
-        # Verification line
         print(f"Category Sum: ${total_amount:,.2f} | Statement Total: ${self.statement_purchase_total:,.2f}")
+        
         if abs(total_amount - self.statement_purchase_total) < 0.01:
             print("✅ CATEGORIES MATCH STATEMENT TOTAL")
         else:
             diff = total_amount - self.statement_purchase_total
-            print(f"❌ MISMATCH: ${diff:,.2f} difference")
+            print(f"❌ CATEGORY MISMATCH: ${diff:,.2f}")
 
     def create_category_summary_file(self, transactions, output_filename):
         """Create category summary file"""
@@ -937,57 +766,57 @@ class RealChaseStatementAnalyzer:
         return categories_filename
 
 def main():
-    """Main function with command line argument parsing"""
-    parser = argparse.ArgumentParser(
-        description='Real Chase Credit Card Statement Analysis Tool - NO HARDCODED DATA',
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  python chase_analysis.py statement.pdf                   # Analyze specific PDF
-  python chase_analysis.py -c statement.pdf                # Analyze and create CSV
-  python chase_analysis.py -c -m statement.pdf             # Analyze with master categorization
-  python chase_analysis.py -c -m -i statement.pdf          # Interactive categorization for OTHER vendors
-  python chase_analysis.py -S statement.pdf                # Summary only: totals and category breakdown
-  python chase_analysis.py -d /path/to/pdfs/               # Process directory
-  python chase_analysis.py -d -m /path/to/pdfs/            # Process directory with master categorization
-  python chase_analysis.py --master-file custom.csv statement.pdf  # Use custom master file
-        """
-    )
+    parser = argparse.ArgumentParser(description='Enhanced Chase Statement Analyzer supporting multiple formats')
     
-    parser.add_argument('pdf_file', nargs='?', help='PDF file to analyze')
-    parser.add_argument('-c', '--csv', action='store_true', 
-                       help='Create CSV file with same name as input PDF')
-    parser.add_argument('-d', '--directory', 
-                       help='Directory containing PDF files to process')
-    parser.add_argument('-m', '--master', action='store_true',
-                       help='Use master categorization file for advanced categorization')
-    parser.add_argument('--master-file', 
-                       help='Specify custom master categorization file path')
-    parser.add_argument('-i', '--interactive', action='store_true',
-                       help='Enable interactive categorization for OTHER category vendors')
-    parser.add_argument('-S', '--summary-only', action='store_true',
-                       help='Show only statement totals and category breakdown table')
+    # Input options
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument('pdf_file', nargs='?', help='Single PDF file to process')
+    group.add_argument('-d', '--directory', help='Directory containing PDF files to process')
+    
+    # Output options
+    parser.add_argument('--csv', action='store_true', help='Create CSV output files')
+    
+    # Master categorization options
+    parser.add_argument('-m', '--master', action='store_true', help='Use master categorization file')
+    parser.add_argument('--master-file', help='Specify master categorization file path')
+    parser.add_argument('-i', '--interactive', action='store_true', help='Interactive categorization for new vendors')
+    
+    # Display options
+    parser.add_argument('-S', '--summary-only', action='store_true', help='Show only summary (no detailed output)')
     
     args = parser.parse_args()
     
+    analyzer = EnhancedChaseStatementAnalyzer()
+    
+    # Set up master categorization
+    master_file = None
+    if args.master or args.master_file:
+        if args.master_file:
+            master_file = args.master_file
+        elif args.directory:
+            master_file = os.path.join(args.directory, 'categories.master')
+        elif args.pdf_file:
+            pdf_dir = os.path.dirname(args.pdf_file) or '.'
+            master_file = os.path.join(pdf_dir, 'categories.master')
+        
+        analyzer.master_file = master_file
+    
     if args.directory:
-        # Process directory of PDFs
-        pdf_files = glob.glob(os.path.join(args.directory, "*.pdf"))
+        # Process all PDF files in directory
+        if not os.path.exists(args.directory):
+            print(f"Error: Directory not found: {args.directory}")
+            sys.exit(1)
+        
+        pdf_files = [f for f in os.listdir(args.directory) if f.lower().endswith('.pdf')]
         if not pdf_files:
-            print(f"No PDF files found in directory: {args.directory}")
-            return
+            print(f"No PDF files found in {args.directory}")
+            sys.exit(1)
         
-        # Set up master file for directory processing
-        master_file = None
-        if args.master or args.master_file:
-            if args.master_file:
-                master_file = args.master_file
-            else:
-                master_file = os.path.join(args.directory, "categories.master")
+        print(f"Found {len(pdf_files)} PDF files in {args.directory}")
         
-        for pdf_file in pdf_files:
-            analyzer = RealChaseStatementAnalyzer(master_file=master_file)
-            analyzer.process_pdf_file(pdf_file, create_csv=args.csv, use_master=bool(master_file), interactive=args.interactive, summary_only=args.summary_only)
+        for pdf_file in sorted(pdf_files):
+            pdf_path = os.path.join(args.directory, pdf_file)
+            analyzer.process_pdf_file(pdf_path, create_csv=args.csv, use_master=bool(master_file), interactive=args.interactive, summary_only=args.summary_only)
             print("\n" + "=" * 80 + "\n")
             
     elif args.pdf_file:
@@ -1002,11 +831,10 @@ Examples:
             if args.master_file:
                 master_file = args.master_file
             else:
-                # Put master file in same directory as PDF
-                pdf_dir = os.path.dirname(os.path.abspath(args.pdf_file))
-                master_file = os.path.join(pdf_dir, "categories.master")
+                pdf_dir = os.path.dirname(args.pdf_file) or '.'
+                master_file = os.path.join(pdf_dir, 'categories.master')
+            analyzer.master_file = master_file
         
-        analyzer = RealChaseStatementAnalyzer(master_file=master_file)
         analyzer.process_pdf_file(args.pdf_file, create_csv=args.csv, use_master=bool(master_file), interactive=args.interactive, summary_only=args.summary_only)
     else:
         print("Error: Please specify a PDF file or directory")
