@@ -457,7 +457,7 @@ class EnhancedChaseStatementAnalyzer:
             else:
                 return master_categories['AMAZON'], False
         
-        # Check each pattern in master categories
+        # Check each pattern in master categories - IMPORTANT: check exact match first
         for pattern, new_category in master_categories.items():
             if pattern.upper() in merchant_upper:
                 # Debug: print successful matches for testing
@@ -579,25 +579,25 @@ class EnhancedChaseStatementAnalyzer:
                 print("❌ No transactions found in PDF")
             return None
         
-        # Step 3.5: Apply master categorization if enabled
+        # Step 4: Apply master categorization if enabled
         recategorized_count = 0
         if use_master and self.master_file:
             if not summary_only:
                 print(f"   📋 Applying master categorization...")
             transactions, recategorized_count = self.apply_master_categorization(transactions, interactive=interactive)
         
-        # CRITICAL: Always set self.transactions to the final categorized transactions
+        # Step 5: Set final transactions
         self.transactions = transactions
             
-        # Step 4: Verify totals
+        # Step 6: Verify totals
         verification = self.verify_totals()
         verification['recategorized_count'] = recategorized_count
         verification['new_vendors_count'] = len(self.new_vendors) if hasattr(self, 'new_vendors') else 0
         
-        # Step 5: Display results
+        # Step 7: Display results
         self.display_results(verification, summary_only=summary_only)
         
-        # Step 6: Create CSV if requested
+        # Step 8: Create CSV if requested
         if create_csv:
             base_name = os.path.splitext(pdf_path)[0]
             output_filename = f"{base_name}.csv"
@@ -769,15 +769,14 @@ def main():
     parser = argparse.ArgumentParser(description='Enhanced Chase Statement Analyzer supporting multiple formats')
     
     # Input options
-    group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument('pdf_file', nargs='?', help='Single PDF file to process')
-    group.add_argument('-d', '--directory', help='Directory containing PDF files to process')
+    parser.add_argument('pdf_file', nargs='?', help='Single PDF file to process')
+    parser.add_argument('-d', '--directory', help='Directory containing PDF files to process')
     
     # Output options
     parser.add_argument('--csv', action='store_true', help='Create CSV output files')
     
     # Master categorization options
-    parser.add_argument('-m', '--master', action='store_true', help='Use master categorization file')
+    parser.add_argument('-m', '--master', nargs='?', const=True, help='Use master categorization file (optionally specify file path)')
     parser.add_argument('--master-file', help='Specify master categorization file path')
     parser.add_argument('-i', '--interactive', action='store_true', help='Interactive categorization for new vendors')
     
@@ -786,18 +785,52 @@ def main():
     
     args = parser.parse_args()
     
+    # Handle the case where --master is given with a filename
+    if args.master and isinstance(args.master, str):
+        # --master was given with a filename
+        if not args.master_file:
+            args.master_file = args.master
+        args.master = True
+    
+    # Validate that exactly one input method is provided
+    if not args.pdf_file and not args.directory:
+        print("Error: Please specify either a PDF file or use -d/--directory")
+        parser.print_help()
+        sys.exit(1)
+    
+    if args.pdf_file and args.directory:
+        print("Error: Please specify either a PDF file OR a directory, not both")
+        parser.print_help()
+        sys.exit(1)
+    
     analyzer = EnhancedChaseStatementAnalyzer()
     
     # Set up master categorization
     master_file = None
     if args.master or args.master_file:
         if args.master_file:
-            master_file = args.master_file
+            # If an explicit master file is provided, check if it's just the filename
+            # and if so, prefer the directory-specific version if it exists
+            if args.pdf_file and os.path.basename(args.master_file) == args.master_file:
+                pdf_dir = os.path.dirname(args.pdf_file) or '.'
+                dir_master_file = os.path.join(pdf_dir, args.master_file)
+                if os.path.exists(dir_master_file):
+                    master_file = dir_master_file
+                else:
+                    master_file = args.master_file
+            else:
+                master_file = args.master_file
         elif args.directory:
             master_file = os.path.join(args.directory, 'categories.master')
         elif args.pdf_file:
             pdf_dir = os.path.dirname(args.pdf_file) or '.'
-            master_file = os.path.join(pdf_dir, 'categories.master')
+            # First try directory-specific master file
+            dir_master_file = os.path.join(pdf_dir, 'categories.master')
+            if os.path.exists(dir_master_file):
+                master_file = dir_master_file
+            else:
+                # Fall back to current directory
+                master_file = 'categories.master'
         
         analyzer.master_file = master_file
     
@@ -825,15 +858,7 @@ def main():
             print(f"Error: File not found: {args.pdf_file}")
             sys.exit(1)
         
-        # Set up master file for single file processing
-        master_file = None
-        if args.master or args.master_file:
-            if args.master_file:
-                master_file = args.master_file
-            else:
-                pdf_dir = os.path.dirname(args.pdf_file) or '.'
-                master_file = os.path.join(pdf_dir, 'categories.master')
-            analyzer.master_file = master_file
+        # Master file was already set up above
         
         analyzer.process_pdf_file(args.pdf_file, create_csv=args.csv, use_master=bool(master_file), interactive=args.interactive, summary_only=args.summary_only)
     else:
