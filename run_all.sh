@@ -2,7 +2,10 @@
 
 echo "Setting virtual environment"
 
-source ~/.python/araj-venv/bin/activate
+if [ -f ~/.python/araj-venv/bin/activate ]
+then
+	source ~/.python/araj-venv/bin/activate
+fi
 
 #Run all 0801
 
