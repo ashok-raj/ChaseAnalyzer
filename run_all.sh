@@ -1,9 +1,8 @@
 #!/bin/bash
 
-echo "Setting virtual environment"
-
 if [ -f ~/.python/araj-venv/bin/activate ]
 then
+	echo "Setting virtual environment"
 	source ~/.python/araj-venv/bin/activate
 fi
 
