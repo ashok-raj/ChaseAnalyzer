@@ -6,9 +6,9 @@ then
 	source ~/.python/araj-venv/bin/activate
 fi
 
-#Run all 0801
+# Process all statement formats: 0801, 1250, 5136, 8635
 
-for dir in 0801 5136
+for dir in 0801 1250 5136 8635
 do
 	echo "Processing $dir"
 	for pdfname in $dir/*.pdf 

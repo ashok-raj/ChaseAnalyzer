@@ -1,7 +1,18 @@
 #!/usr/bin/env python3
 """
 Enhanced Chase Statement Analyzer
-Supports both 0801 and 5136 statement formats with master categorization
+Supports multiple credit card statement formats:
+- 1250: Bank of America statements
+- 0801: Chase statements (format 1)
+- 5136: Chase statements (format 2)
+- 8635: Chase statements (format 3)
+
+Features:
+- Master categorization system with automatic learning
+- Statement month extraction from closing dates
+- PDF parsing with transaction extraction
+- Category verification and MISC adjustments
+- Batch processing support
 """
 
 import pdfplumber
@@ -28,6 +39,7 @@ class EnhancedChaseStatementAnalyzer:
         self.statement_purchase_total = 0.0
         self.statement_payment_total = 0.0
         self.statement_period = ""
+        self.payment_due_date = ""
         
     def extract_pdf_content(self, pdf_path):
         """Extract text content from PDF file using pdfplumber"""
@@ -53,33 +65,85 @@ class EnhancedChaseStatementAnalyzer:
         for line in lines:
             line = line.strip()
             
-            # Previous Balance
+            # Previous Balance (Chase and Bank of America formats)
             if 'Previous Balance' in line:
-                balance_match = re.search(r'Previous Balance[^\d]*\$?([\d,]+\.?\d*)', line)
-                if balance_match:
+                balance_match = re.search(r'Previous Balance.*?\$?([\d,]+\.?\d{0,2})', line)
+                if balance_match and balance_match.group(1) and balance_match.group(1).strip():
                     self.statement_previous_balance = float(balance_match.group(1).replace(',', ''))
             
-            # New Balance
-            elif 'New Balance' in line:
-                balance_match = re.search(r'New Balance[^\d]*\$?([\d,]+\.?\d*)', line)
-                if balance_match:
+            # New Balance Total (Bank of America) or New Balance (Chase)
+            elif 'New Balance Total' in line and line.startswith(('New Balance Total', 'Account Summary/Payment Information New Balance Total')):
+                balance_match = re.search(r'New Balance Total.*?\$?([\d,]+\.?\d{0,2})', line)
+                if balance_match and balance_match.group(1) and balance_match.group(1).strip():
+                    try:
+                        self.statement_new_balance = float(balance_match.group(1).replace(',', ''))
+                    except ValueError:
+                        # Debug output for troubleshooting
+                        if not getattr(self, 'summary_only', False):
+                            print(f"DEBUG: Failed to parse New Balance Total from line: {repr(line)}")
+                            print(f"DEBUG: Match group 1: {repr(balance_match.group(1))}")
+                        continue
+            elif 'New Balance' in line and 'Total' not in line:
+                balance_match = re.search(r'New Balance.*?\$?([\d,]+\.?\d{0,2})', line)
+                if balance_match and balance_match.group(1) and balance_match.group(1).strip():
                     self.statement_new_balance = float(balance_match.group(1).replace(',', ''))
             
-            # Purchases
-            elif 'Purchases' in line and 'Total' not in line and '%' not in line and 'important' not in line:
-                purchase_match = re.search(r'Purchases[^\d]*[+\-]?\$?([\d,]+\.?\d*)', line)
-                if purchase_match and purchase_match.group(1) and purchase_match.group(1).replace(',', '').replace('.', '').isdigit():
+            # Purchases and Adjustments (Bank of America) or Purchases (Chase)
+            elif 'Purchases and Adjustments' in line and line.startswith(('Purchases and Adjustments', 'Account Summary/Payment Information')):
+                purchase_match = re.search(r'Purchases and Adjustments.*?\$?([\d,]+\.?\d{0,2})', line)
+                if purchase_match and purchase_match.group(1) and purchase_match.group(1).strip():
                     self.statement_purchase_total = float(purchase_match.group(1).replace(',', ''))
+            elif 'Purchases' in line and 'Total' not in line and '%' not in line and 'important' not in line and 'Adjustments' not in line and 'new Purchases' not in line and 'consisting of Purchases' not in line and 'on Purchases' not in line:
+                purchase_match = re.search(r'Purchases[^\d]*[+\-]?\$?([\d,]+\.?\d{0,2})', line)
+                if purchase_match and purchase_match.group(1) and purchase_match.group(1).replace(',', '').replace('.', '').isdigit() and len(purchase_match.group(1).replace(',', '').replace('.', '')) >= 2:
+                    # Only accept if the amount makes sense (at least 2 digits, not just "1")
+                    amount = float(purchase_match.group(1).replace(',', ''))
+                    if amount >= 0.01:  # Reasonable minimum
+                        self.statement_purchase_total = amount
             
-            # Payments
-            elif 'Payments' in line and 'Credits' in line:
-                payment_match = re.search(r'Payments/Credits[^\d]*-?\$?([\d,]+\.?\d*)', line)
-                if payment_match:
+            # Payments and Other Credits (Bank of America) or Payments/Credits (Chase)
+            elif 'Payments and Other Credits' in line:
+                payment_match = re.search(r'Payments and Other Credits.*?-?\$?([\d,]+\.?\d{0,2})', line)
+                if payment_match and payment_match.group(1) and payment_match.group(1).strip():
+                    self.statement_payment_total = float(payment_match.group(1).replace(',', ''))
+            elif 'Payments' in line and 'Credits' in line and 'Other' not in line:
+                payment_match = re.search(r'Payments/Credits.*?-?\$?([\d,]+\.?\d{0,2})', line)
+                if payment_match and payment_match.group(1) and payment_match.group(1).strip():
                     self.statement_payment_total = float(payment_match.group(1).replace(',', ''))
             
-            # Statement period
+            # Statement period - Bank of America format (December 25 - January 24, 2025) or Chase format
+            elif re.match(r'\w+ \d{1,2} - \w+ \d{1,2}, \d{4}', line):
+                self.statement_period = line
             elif re.match(r'\d{2}/\d{2}/\d{2} - \d{2}/\d{2}/\d{2}', line):
                 self.statement_period = line
+            
+            # Payment Due Date - Bank of America format (MM/DD/YYYY)
+            elif 'Payment Due Date' in line:
+                payment_due_match = re.search(r'Payment Due Date\s+(\d{2}/\d{2}/\d{4})', line)
+                if payment_due_match:
+                    self.payment_due_date = payment_due_match.group(1)
+            
+            # Payment Due Date - Chase 0801 format (MM/DD/YY)
+            elif 'Payment Due Date' in line and not self.payment_due_date:
+                payment_due_match_chase = re.search(r'Payment Due Date[:\s]+(\d{2}/\d{2}/\d{2})', line)
+                if payment_due_match_chase:
+                    # Convert 2-digit year to 4-digit year
+                    date_parts = payment_due_match_chase.group(1).split('/')
+                    year_2digit = int(date_parts[2])
+                    year_4digit = 2000 + year_2digit if year_2digit < 50 else 1900 + year_2digit
+                    self.payment_due_date = f"{date_parts[0]}/{date_parts[1]}/{year_4digit}"
+            
+            # Opening/Closing Date - Chase 0801 and 8635 formats for statement period
+            elif 'Opening/Closing Date' in line:
+                closing_date_match = re.search(r'Opening/Closing Date\s+\d{2}/\d{2}/\d{2}\s*-\s*(\d{2}/\d{2}/\d{2})', line)
+                if closing_date_match:
+                    # Store the closing date for 0801 and 8635 formats
+                    closing_date = closing_date_match.group(1)
+                    # Convert to full date format
+                    date_parts = closing_date.split('/')
+                    year_2digit = int(date_parts[2])
+                    year_4digit = 2000 + year_2digit if year_2digit < 50 else 1900 + year_2digit
+                    self.statement_period = f"{date_parts[0]}/{date_parts[1]}/{year_4digit}"
         
         if not getattr(self, 'summary_only', False):
             print(f"     Previous Balance: ${self.statement_previous_balance:,.2f}")
@@ -87,6 +151,38 @@ class EnhancedChaseStatementAnalyzer:
             print(f"     Purchases: ${self.statement_purchase_total:,.2f}")
             print(f"     New Balance: ${self.statement_new_balance:,.2f}")
             print(f"     Statement Period: {self.statement_period}")
+            if self.payment_due_date:
+                print(f"     Payment Due Date: {self.payment_due_date}")
+
+    def get_statement_month(self):
+        """Get statement month string for display header"""
+        from datetime import datetime
+        
+        # For 1250 format (Bank of America), use statement period end date to determine statement month
+        if hasattr(self, 'pdf_file') and '1250' in self.pdf_file:
+            try:
+                if self.statement_period:
+                    # Extract ending month from statement period (e.g., "July 25 - August 24, 2025")
+                    period_match = re.search(r'- (\w+) \d+, (\d{4})', self.statement_period)
+                    if period_match:
+                        month_name = period_match.group(1)
+                        year = period_match.group(2)
+                        return f"{month_name} {year}"
+            except:
+                pass
+        
+        # For 0801, 5136, and 8635 formats (Chase), use closing date to determine statement month
+        elif hasattr(self, 'pdf_file') and ('0801' in self.pdf_file or '5136' in self.pdf_file or '8635' in self.pdf_file):
+            try:
+                if self.statement_period:
+                    # statement_period contains the closing date in MM/DD/YYYY format
+                    closing_date = datetime.strptime(self.statement_period, '%m/%d/%Y')
+                    return closing_date.strftime('%B %Y')
+            except:
+                pass
+        
+        # For other formats, use statement period as is
+        return self.statement_period
 
     def categorize_transaction(self, merchant, amount):
         """Automatically categorize transaction based on merchant name (purchases only)"""
@@ -124,6 +220,8 @@ class EnhancedChaseStatementAnalyzer:
                     return '0801'
                 elif '8635' in line:
                     return '8635'
+                elif '1250' in line:
+                    return '1250'
         
         # Fallback to old detection method if Account Number not found
         sample_text = '\n'.join(sample_lines).upper()
@@ -159,6 +257,8 @@ class EnhancedChaseStatementAnalyzer:
             transactions = self.extract_5136_format_transactions(lines)
         elif format_type == '8635':
             transactions = self.extract_8635_format_transactions(lines)
+        elif format_type == '1250':
+            transactions = self.extract_1250_format_transactions(lines)
         else:
             transactions = self.extract_0801_format_transactions(lines)
         
@@ -599,6 +699,160 @@ class EnhancedChaseStatementAnalyzer:
         
         return all_transactions
 
+    def extract_1250_format_transactions(self, lines):
+        """Extract transactions from 1250 format (Bank of America format similar to tabular layout)"""
+        all_transactions = []
+        credits_to_include = []
+        current_cardholder = "SUMATHI RAJ"  # Default for 1250 format
+        in_fees_section = False
+        in_credits_section = False
+        in_purchases_section = False
+        in_interest_section = False
+        
+        # Skip patterns to avoid processing headers/footers
+        skip_patterns = [
+            'Transaction Date', 'Posting Date', 'Description', 'Reference Number', 'Account Number', 'Amount', 'Total',
+            'TOTAL PAYMENTS', 'TOTAL PURCHASES', 'TOTAL INTEREST', 'TOTAL FEES',
+            '2025 Totals Year-to-Date', 'Interest Charge Calculation'
+        ]
+        
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            
+            # Section detection
+            if 'Payments and Other Credits' in line:
+                in_credits_section = True
+                in_purchases_section = False
+                in_fees_section = False
+                in_interest_section = False
+                continue
+            elif 'Purchases and Adjustments' in line:
+                in_purchases_section = True
+                in_credits_section = False
+                in_fees_section = False
+                in_interest_section = False
+                continue
+            elif 'Fees Charged' in line:
+                in_fees_section = True
+                in_credits_section = False
+                in_purchases_section = False
+                in_interest_section = False
+                continue
+            elif 'Interest Charged' in line:
+                in_interest_section = True
+                in_credits_section = False
+                in_purchases_section = False
+                in_fees_section = False
+                continue
+            
+            # Skip header and footer lines
+            if any(skip in line for skip in skip_patterns):
+                continue
+            
+            # Skip year-to-date summary lines
+            if 'Total fees charged' in line or 'Total interest charged' in line:
+                continue
+            
+            # Only process transactions when in a valid section
+            if not (in_credits_section or in_purchases_section or in_fees_section or in_interest_section):
+                continue
+            
+            # Transaction pattern: MM/DD MM/DD DESCRIPTION REFERENCE ACCOUNT AMOUNT
+            # Example: "01/06 01/08 ALASKA AIR SEATTLE WA 0996 1250 -9.99"
+            transaction_match = re.match(r'^(\d{2}/\d{2})\s+(\d{2}/\d{2})\s+(.+?)\s+(\d+)\s+(\d{4})\s+([-]?\d{1,3}(?:,\d{3})*\.?\d{0,2})$', line)
+            
+            if transaction_match:
+                try:
+                    trans_date = transaction_match.group(1)
+                    post_date = transaction_match.group(2)
+                    description = transaction_match.group(3).strip()
+                    reference = transaction_match.group(4)
+                    account_last4 = transaction_match.group(5)
+                    amount_str = transaction_match.group(6).replace(',', '')
+                    
+                    # Skip if description is too short
+                    if len(description) < 3:
+                        continue
+                    
+                    amount = float(amount_str)
+                    
+                    # Determine transaction type based on section and amount
+                    if in_credits_section:
+                        if amount < 0:
+                            # This is a credit/refund or payment
+                            if 'ELECTRONIC PAYMENT' in description.upper() or 'PAYMENT' in description.upper():
+                                # Skip payments
+                                if not getattr(self, 'summary_only', False):
+                                    print(f"     Skipping payment: {description} ${amount}")
+                                continue
+                            else:
+                                # This is a credit/refund - store for later processing
+                                credits_to_include.append({
+                                    'date': f"2025/{trans_date}",
+                                    'cardholder': current_cardholder,
+                                    'merchant': description,
+                                    'amount': amount,
+                                    'type': 'Credit',
+                                    'category': self.categorize_transaction(description, abs(amount))
+                                })
+                        continue
+                    elif in_purchases_section:
+                        if amount < 0:
+                            # Negative amount in purchases section - should be rare, skip
+                            continue
+                        transaction_type = 'Purchase'
+                        category = self.categorize_transaction(description, amount)
+                    elif in_fees_section:
+                        transaction_type = 'Fee'
+                        category = 'CC FEES'
+                    elif in_interest_section:
+                        transaction_type = 'Interest'
+                        category = 'CC FEES'
+                    else:
+                        continue
+                    
+                    # Create transaction record
+                    transaction = {
+                        'date': f"2025/{trans_date}",
+                        'cardholder': current_cardholder,
+                        'merchant': description,
+                        'amount': amount,
+                        'type': transaction_type,
+                        'category': category
+                    }
+                    all_transactions.append(transaction)
+                    
+                except (ValueError, IndexError):
+                    continue
+        
+        # Second pass: intelligently include credits that don't have offsetting purchases
+        for credit in credits_to_include:
+            merchant = credit['merchant']
+            credit_amount = abs(credit['amount'])
+            
+            # Check if there's a corresponding purchase with the same amount
+            has_offsetting_purchase = False
+            for txn in all_transactions:
+                if txn['type'] == 'Purchase' and txn['amount'] == credit_amount:
+                    # Check if merchant names are similar
+                    credit_base = merchant.upper().split()[0] if merchant else ''
+                    
+                    if credit_base and credit_base in txn['merchant'].upper():
+                        has_offsetting_purchase = True
+                        if not getattr(self, 'summary_only', False):
+                            print(f"     Excluding credit {merchant} ${credit['amount']} - has offsetting purchase")
+                        break
+            
+            # Only include credit if it doesn't have an offsetting purchase
+            if not has_offsetting_purchase:
+                all_transactions.append(credit)
+                if not getattr(self, 'summary_only', False):
+                    print(f"     Including credit: {merchant} ${credit['amount']} → {credit['category']}")
+        
+        return all_transactions
+
     def load_master_categories(self, master_file):
         """Load master categorization rules from CSV file, create if doesn't exist"""
         master_categories = {}
@@ -779,11 +1033,16 @@ class EnhancedChaseStatementAnalyzer:
                                        if txn.get('type') in ['Purchase', 'Fee'])
         
         # For 8635 format, compare purchases against statement purchase total
+        # For 1250 format, compare purchases against statement purchase total  
         # For other formats, compare all transactions against new balance
         if hasattr(self, 'pdf_file') and '8635' in self.pdf_file:
             # 8635 format: compare our calculated purchases against statement purchases
             comparison_total = calculated_purchases_only
             statement_comparison = self.statement_purchase_total
+        elif hasattr(self, 'pdf_file') and '1250' in self.pdf_file:
+            # 1250 format: compare all transactions against new balance total
+            comparison_total = calculated_total_all
+            statement_comparison = self.statement_new_balance
         else:
             # 5136/0801 formats: compare all transactions (purchases + fees + credits) against new balance
             # New Balance represents the statement balance after all transactions (excluding payments)
@@ -893,8 +1152,14 @@ class EnhancedChaseStatementAnalyzer:
     def display_results(self, verification, summary_only=False):
         """Display analysis results"""
         if summary_only:
-            # Summary-only mode: just show totals and category breakdown
-            print(f"\n📊 STATEMENT TOTALS")
+            # Summary-only mode: just show totals and category breakdown with header
+            # Use Statement Month for 1250, 0801, 5136, and 8635 formats, Statement Period for others
+            statement_display = self.get_statement_month()
+            if hasattr(self, 'pdf_file') and ('1250' in self.pdf_file or '0801' in self.pdf_file or '5136' in self.pdf_file or '8635' in self.pdf_file):
+                print(f"\n📅 STATEMENT MONTH: {statement_display}")
+            else:
+                print(f"\n📅 STATEMENT PERIOD: {statement_display}")
+            print(f"📊 STATEMENT TOTALS")
             print("=" * 50)
             print(f"Statement Total: ${verification['purchase_total_statement']:,.2f}")
             
@@ -918,8 +1183,13 @@ class EnhancedChaseStatementAnalyzer:
         print("\n" + "=" * 80)
         print("CHASE CREDIT CARD STATEMENT ANALYSIS - REAL PDF DATA")
         print("=" * 80)
+        # Use Statement Month for 1250, 0801, 5136, and 8635 formats, Statement Period for others
+        statement_display = self.get_statement_month()
+        if hasattr(self, 'pdf_file') and ('1250' in self.pdf_file or '0801' in self.pdf_file or '5136' in self.pdf_file or '8635' in self.pdf_file):
+            print(f"📅 STATEMENT MONTH: {statement_display}")
+        else:
+            print(f"📅 STATEMENT PERIOD: {statement_display}")
         print(f"File: {self.pdf_file}")
-        print(f"Statement Period: {self.statement_period}")
         print(f"Previous Balance: ${self.statement_previous_balance:,.2f}")
         print(f"New Balance: ${self.statement_new_balance:,.2f}")
         print()
@@ -1010,7 +1280,7 @@ class EnhancedChaseStatementAnalyzer:
         purchases_fees_total = sum(txn['amount'] for txn in self.transactions 
                                   if txn.get('type') in ['Purchase', 'Fee'])
         
-        # For 8635 format, compare against net change in balance; for others, match verification logic
+        # For 8635 format, compare against net change in balance; for 1250, compare against purchases; for others, match verification logic
         if hasattr(self, 'pdf_file') and '8635' in self.pdf_file:
             # For 8635: our transactions exclude payments, so we compare against:
             # Net change + payment amount (since payments reduce the net change but aren't in our totals)
@@ -1020,6 +1290,10 @@ class EnhancedChaseStatementAnalyzer:
             payment_amount = total_amount - net_change
             statement_comparison_amount = net_change + payment_amount
             comparison_label = f"Net Change + Payments (${payment_amount:,.2f})"
+        elif hasattr(self, 'pdf_file') and '1250' in self.pdf_file:
+            # For 1250: compare all transactions against new balance total
+            statement_comparison_amount = self.statement_new_balance
+            comparison_label = "New Balance Total"
         else:
             # For 5136/0801: compare against new balance (statement balance)
             statement_comparison_amount = self.statement_new_balance
@@ -1030,6 +1304,21 @@ class EnhancedChaseStatementAnalyzer:
         # Compare against appropriate statement total and add MISC adjustment if needed
         if hasattr(self, 'pdf_file') and '8635' in self.pdf_file:
             # For 8635: all transactions (purchases + fees + interest + credits) should sum to net change
+            diff = statement_comparison_amount - total_amount
+            if abs(diff) < 0.01:
+                print("✅ CATEGORIES MATCH STATEMENT TOTAL")
+            else:
+                print(f"❌ CATEGORY MISMATCH: ${diff:,.2f}")
+                # Add MISC category to balance the difference for small mismatches
+                if abs(diff) <= 300.0:  # Only for small discrepancies <= $300
+                    print(f"   Adding MISC category adjustment: ${diff:,.2f}")
+                    # Update category stats to include MISC
+                    category_stats['MISC'] = {'count': 1, 'amount': diff}
+                    # Recalculate and redisplay the adjusted table
+                    self._display_adjusted_category_table(category_stats, statement_comparison_amount, comparison_label)
+                    return
+        elif hasattr(self, 'pdf_file') and '1250' in self.pdf_file:
+            # For 1250: categories should match statement purchase total
             diff = statement_comparison_amount - total_amount
             if abs(diff) < 0.01:
                 print("✅ CATEGORIES MATCH STATEMENT TOTAL")
