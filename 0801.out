@@ -1,0 +1,352 @@
+
+📊 STATEMENT TOTALS
+==================================================
+Statement Total: $4,107.99
+Calculated Total: $4,107.99
+Status: ✅ MATCH
+
+================================================================================
+CATEGORY BREAKDOWN TABLE
+================================================================================
+Category             Count    Amount          % of Total  
+--------------------------------------------------------------------------------
+SERVICES             19       $1,817.12       44.2       %
+ACCOUNTING           1        $870.86         21.2       %
+UTILITIES            4        $628.17         15.3       %
+INSURANCE            1        $426.08         10.4       %
+DINING               6        $183.54         4.5        %
+ENTERTAINMENT        1        $70.12          1.7        %
+TRAVEL               2        $70.00          1.7        %
+COUNTY FEES          1        $23.00          0.6        %
+TELEPHONE            1        $16.10          0.4        %
+MEDICAL/HEALTH       1        $3.00           0.1        %
+--------------------------------------------------------------------------------
+TOTAL                37       $4,107.99       100.0      %
+================================================================================
+Category Sum: $4,107.99 | Statement Balance: $4,107.99
+✅ CATEGORIES MATCH STATEMENT BALANCE
+
+📁 CSV file created: 0801/20250106-statements-0801-.csv
+   - 37 total transactions with categories
+
+📊 Category summary created: 0801/20250106-statements-0801-.categories
+
+📋 Master categorization file: categories.master
+   • Added 0 new vendors to master file
+   • Recategorized 34 transactions using master rules
+
+📊 STATEMENT TOTALS
+==================================================
+Statement Total: $7,471.35
+Calculated Total: $7,471.35
+Status: ✅ MATCH
+
+================================================================================
+CATEGORY BREAKDOWN TABLE
+================================================================================
+Category             Count    Amount          % of Total  
+--------------------------------------------------------------------------------
+SERVICES             34       $3,547.97       47.5       %
+ACCOUNTING           2        $1,206.28       16.1       %
+DINING               14       $1,088.09       14.6       %
+UTILITIES            5        $626.49         8.4        %
+INSURANCE            1        $426.08         5.7        %
+AUTO                 2        $173.16         2.3        %
+GROCERIES            2        $165.39         2.2        %
+TRAVEL               8        $122.51         1.6        %
+SHOPPING             2        $99.24          1.3        %
+TELEPHONE            1        $16.14          0.2        %
+--------------------------------------------------------------------------------
+TOTAL                71       $7,471.35       100.0      %
+================================================================================
+Category Sum: $7,471.35 | Statement Balance: $7,471.35
+✅ CATEGORIES MATCH STATEMENT BALANCE
+
+📁 CSV file created: 0801/20250206-statements-0801-.csv
+   - 71 total transactions with categories
+
+📊 Category summary created: 0801/20250206-statements-0801-.categories
+
+📋 Master categorization file: categories.master
+   • Added 0 new vendors to master file
+   • Recategorized 67 transactions using master rules
+
+📊 STATEMENT TOTALS
+==================================================
+Statement Total: $9,694.73
+Calculated Total: $9,694.73
+Status: ✅ MATCH
+
+================================================================================
+CATEGORY BREAKDOWN TABLE
+================================================================================
+Category             Count    Amount          % of Total  
+--------------------------------------------------------------------------------
+SERVICES             30       $4,945.42       51.0       %
+GROCERIES            5        $2,355.56       24.3       %
+UTILITIES            5        $827.31         8.5        %
+AUTO                 3        $518.62         5.3        %
+INSURANCE            1        $426.08         4.4        %
+DINING               9        $419.58         4.3        %
+TRAVEL               9        $186.02         1.9        %
+TELEPHONE            1        $16.14          0.2        %
+--------------------------------------------------------------------------------
+TOTAL                63       $9,694.73       100.0      %
+================================================================================
+Category Sum: $9,694.73 | Statement Balance: $9,694.73
+✅ CATEGORIES MATCH STATEMENT BALANCE
+
+📁 CSV file created: 0801/20250306-statements-0801-.csv
+   - 63 total transactions with categories
+
+📊 Category summary created: 0801/20250306-statements-0801-.categories
+
+📋 Master categorization file: categories.master
+   • Added 0 new vendors to master file
+   • Recategorized 59 transactions using master rules
+
+📊 STATEMENT TOTALS
+==================================================
+Statement Total: $27,400.47
+Calculated Total: $27,399.66
+Status: ❌ MISMATCH ($-0.81)
+
+================================================================================
+CATEGORY BREAKDOWN TABLE
+================================================================================
+Category             Count    Amount          % of Total  
+--------------------------------------------------------------------------------
+GROCERIES            26       $11,096.83      40.5       %
+UTILITIES            8        $3,978.58       14.5       %
+AUTO                 6        $3,737.02       13.6       %
+ACCOUNTING           5        $2,160.62       7.9        %
+PROFESSIONAL CLOTHING 5        $2,057.93       7.5        %
+SERVICES             22       $1,903.49       6.9        %
+INSURANCE            2        $1,535.08       5.6        %
+DINING               21       $762.24         2.8        %
+TRAVEL               9        $118.61         0.4        %
+SUBSCRIPTIONS        1        $23.00          0.1        %
+TELEPHONE            1        $16.26          0.1        %
+MEDICAL/HEALTH       1        $10.00          0.0        %
+--------------------------------------------------------------------------------
+TOTAL                107      $27,399.66      100.0      %
+================================================================================
+Category Sum: $27,399.66 | Statement Balance: $27,400.47
+❌ CATEGORY MISMATCH: $0.81
+   Adding MISC category adjustment: $0.81
+
+================================================================================
+ADJUSTED CATEGORY BREAKDOWN TABLE
+================================================================================
+Category             Count    Amount          % of Total  
+--------------------------------------------------------------------------------
+GROCERIES            26       $11,096.83      40.5       %
+UTILITIES            8        $3,978.58       14.5       %
+AUTO                 6        $3,737.02       13.6       %
+ACCOUNTING           5        $2,160.62       7.9        %
+PROFESSIONAL CLOTHING 5        $2,057.93       7.5        %
+SERVICES             22       $1,903.49       6.9        %
+INSURANCE            2        $1,535.08       5.6        %
+DINING               21       $762.24         2.8        %
+TRAVEL               9        $118.61         0.4        %
+SUBSCRIPTIONS        1        $23.00          0.1        %
+TELEPHONE            1        $16.26          0.1        %
+MEDICAL/HEALTH       1        $10.00          0.0        %
+MISC                 1        $0.81           0.0        %
+--------------------------------------------------------------------------------
+TOTAL                108      $27,400.47      100.0      %
+================================================================================
+Adjusted Category Sum: $27,400.47 | Statement Balance: $27,400.47
+✅ ADJUSTED CATEGORIES MATCH STATEMENT TOTAL
+
+📁 CSV file created: 0801/20250406-statements-0801-.csv
+   - 107 total transactions with categories
+
+📊 Category summary created: 0801/20250406-statements-0801-.categories
+
+📋 Master categorization file: categories.master
+   • Added 0 new vendors to master file
+   • Recategorized 100 transactions using master rules
+
+📊 STATEMENT TOTALS
+==================================================
+Statement Total: $16,864.42
+Calculated Total: $16,864.42
+Status: ✅ MATCH
+
+================================================================================
+CATEGORY BREAKDOWN TABLE
+================================================================================
+Category             Count    Amount          % of Total  
+--------------------------------------------------------------------------------
+GROCERIES            19       $9,346.67       55.4       %
+SERVICES             23       $2,999.90       17.8       %
+UTILITIES            10       $1,707.71       10.1       %
+ACCOUNTING           3        $1,060.40       6.3        %
+INSURANCE            2        $841.09         5.0        %
+DINING               13       $423.22         2.5        %
+CHARITY              1        $150.00         0.9        %
+MEDICAL/HEALTH       2        $143.29         0.8        %
+SHOPPING             2        $135.38         0.8        %
+TRAVEL               3        $40.45          0.2        %
+TELEPHONE            1        $16.31          0.1        %
+--------------------------------------------------------------------------------
+TOTAL                79       $16,864.42      100.0      %
+================================================================================
+Category Sum: $16,864.42 | Statement Balance: $16,864.42
+✅ CATEGORIES MATCH STATEMENT BALANCE
+
+📁 CSV file created: 0801/20250506-statements-0801-.csv
+   - 79 total transactions with categories
+
+📊 Category summary created: 0801/20250506-statements-0801-.categories
+
+📋 Master categorization file: categories.master
+   • Added 0 new vendors to master file
+   • Recategorized 74 transactions using master rules
+
+📊 STATEMENT TOTALS
+==================================================
+Statement Total: $22,898.07
+Calculated Total: $22,898.07
+Status: ✅ MATCH
+
+================================================================================
+CATEGORY BREAKDOWN TABLE
+================================================================================
+Category             Count    Amount          % of Total  
+--------------------------------------------------------------------------------
+GROCERIES            28       $12,672.10      55.3       %
+SERVICES             34       $4,792.83       20.9       %
+UTILITIES            12       $3,073.14       13.4       %
+ACCOUNTING           1        $1,516.98       6.6        %
+INSURANCE            1        $426.09         1.9        %
+DINING               7        $248.48         1.1        %
+AUTO                 1        $81.83          0.4        %
+SHOPPING             1        $61.99          0.3        %
+TELEPHONE            1        $17.63          0.1        %
+TRAVEL               1        $7.00           0.0        %
+--------------------------------------------------------------------------------
+TOTAL                87       $22,898.07      100.0      %
+================================================================================
+Category Sum: $22,898.07 | Statement Balance: $22,898.07
+✅ CATEGORIES MATCH STATEMENT BALANCE
+
+📁 CSV file created: 0801/20250606-statements-0801-.csv
+   - 87 total transactions with categories
+
+📊 Category summary created: 0801/20250606-statements-0801-.categories
+
+📋 Master categorization file: categories.master
+   • Added 0 new vendors to master file
+   • Recategorized 82 transactions using master rules
+
+📊 STATEMENT TOTALS
+==================================================
+Statement Total: $20,482.54
+Calculated Total: $20,482.54
+Status: ✅ MATCH
+
+================================================================================
+CATEGORY BREAKDOWN TABLE
+================================================================================
+Category             Count    Amount          % of Total  
+--------------------------------------------------------------------------------
+GROCERIES            28       $12,050.85      58.8       %
+UTILITIES            9        $3,270.39       16.0       %
+SERVICES             27       $2,798.44       13.7       %
+DINING               22       $661.13         3.2        %
+ACCOUNTING           1        $561.60         2.7        %
+INSURANCE            1        $426.09         2.1        %
+AUTO                 3        $171.77         0.8        %
+TELECOM              1        $169.50         0.8        %
+SHOPPING             3        $145.85         0.7        %
+GOVERNMENT           1        $100.00         0.5        %
+TRAVEL               4        $78.89          0.4        %
+MEDICAL/HEALTH       1        $25.00          0.1        %
+TELEPHONE            1        $16.31          0.1        %
+MISCELLANEOUS        1        $6.72           0.0        %
+--------------------------------------------------------------------------------
+TOTAL                103      $20,482.54      100.0      %
+================================================================================
+Category Sum: $20,482.54 | Statement Balance: $20,482.54
+✅ CATEGORIES MATCH STATEMENT BALANCE
+
+📁 CSV file created: 0801/20250706-statements-0801-.csv
+   - 103 total transactions with categories
+
+📊 Category summary created: 0801/20250706-statements-0801-.categories
+
+📋 Master categorization file: categories.master
+   • Added 0 new vendors to master file
+   • Recategorized 95 transactions using master rules
+
+📊 STATEMENT TOTALS
+==================================================
+Statement Total: $21,327.36
+Calculated Total: $21,327.36
+Status: ✅ MATCH
+
+================================================================================
+CATEGORY BREAKDOWN TABLE
+================================================================================
+Category             Count    Amount          % of Total  
+--------------------------------------------------------------------------------
+GROCERIES            22       $11,173.03      52.4       %
+SERVICES             41       $2,850.69       13.4       %
+TRAVEL               2        $2,503.55       11.7       %
+ACCOUNTING           3        $2,004.04       9.4        %
+UTILITIES            7        $1,441.34       6.8        %
+DINING               29       $821.00         3.8        %
+INSURANCE            1        $426.09         2.0        %
+AUTO                 1        $91.39          0.4        %
+TELEPHONE            1        $16.23          0.1        %
+--------------------------------------------------------------------------------
+TOTAL                107      $21,327.36      100.0      %
+================================================================================
+Category Sum: $21,327.36 | Statement Balance: $21,327.36
+✅ CATEGORIES MATCH STATEMENT BALANCE
+
+📁 CSV file created: 0801/20250806-statements-0801-.csv
+   - 107 total transactions with categories
+
+📊 Category summary created: 0801/20250806-statements-0801-.categories
+
+📋 Master categorization file: categories.master
+   • Added 0 new vendors to master file
+   • Recategorized 104 transactions using master rules
+
+📊 STATEMENT TOTALS
+==================================================
+Statement Total: $21,327.36
+Calculated Total: $21,327.36
+Status: ✅ MATCH
+
+================================================================================
+CATEGORY BREAKDOWN TABLE
+================================================================================
+Category             Count    Amount          % of Total  
+--------------------------------------------------------------------------------
+GROCERIES            22       $11,173.03      52.4       %
+SERVICES             41       $2,850.69       13.4       %
+TRAVEL               2        $2,503.55       11.7       %
+ACCOUNTING           3        $2,004.04       9.4        %
+UTILITIES            7        $1,441.34       6.8        %
+DINING               29       $821.00         3.8        %
+INSURANCE            1        $426.09         2.0        %
+AUTO                 1        $91.39          0.4        %
+TELEPHONE            1        $16.23          0.1        %
+--------------------------------------------------------------------------------
+TOTAL                107      $21,327.36      100.0      %
+================================================================================
+Category Sum: $21,327.36 | Statement Balance: $21,327.36
+✅ CATEGORIES MATCH STATEMENT BALANCE
+
+📁 CSV file created: 0801/test-statement.csv
+   - 107 total transactions with categories
+
+📊 Category summary created: 0801/test-statement.categories
+
+📋 Master categorization file: categories.master
+   • Added 0 new vendors to master file
+   • Recategorized 104 transactions using master rules

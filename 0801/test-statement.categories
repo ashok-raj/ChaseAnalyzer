@@ -1,0 +1,18 @@
+CHASE CREDIT CARD STATEMENT - CATEGORY ANALYSIS (PURCHASES ONLY)
+================================================================================
+Generated from: 0801/test-statement.csv
+Analysis Date: 2025-09-04 22:21:23
+Total Transactions: 107 (purchases only)
+Total Amount: $21,327.36
+
+CATEGORY BREAKDOWN
+================================================================================
+ACCOUNTING             3 transactions  $  2,004.04
+AUTO                   1 transactions  $     91.39
+DINING                29 transactions  $    821.00
+GROCERIES             22 transactions  $ 11,173.03
+INSURANCE              1 transactions  $    426.09
+SERVICES              41 transactions  $  2,850.69
+TELEPHONE              1 transactions  $     16.23
+TRAVEL                 2 transactions  $  2,503.55
+UTILITIES              7 transactions  $  1,441.34
