@@ -1251,17 +1251,13 @@ class EnhancedChaseStatementAnalyzer:
             print(f"📊 STATEMENT TOTALS")
             print("=" * 50)
             print(f"Statement Total: ${verification['purchase_total_statement']:,.2f}")
+            print(f"Calculated Total: ${verification['purchase_total_calculated']:,.2f}")
             
-            # For consistency, show the same total that will appear in category breakdown
-            # This should match the sum of all transactions displayed in categories
-            calculated_display_total = sum(txn['amount'] for txn in self.transactions)
-            print(f"Calculated Total: ${calculated_display_total:,.2f}")
-            
-            # Compare against the appropriate verification total
-            if abs(calculated_display_total - verification['purchase_total_statement']) < 0.01:
+            # Use the verification results which already account for automatic adjustments
+            if verification['purchase_match']:
                 print("Status: ✅ MATCH")
             else:
-                diff = calculated_display_total - verification['purchase_total_statement']
+                diff = verification['purchase_total_calculated'] - verification['purchase_total_statement']
                 print(f"Status: ❌ MISMATCH (${diff:,.2f})")
             
             # Category breakdown table
