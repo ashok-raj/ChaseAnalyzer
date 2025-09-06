@@ -1041,10 +1041,20 @@ class EnhancedChaseStatementAnalyzer:
             statement_comparison = self.statement_purchase_total
             
             # For 8635, automatically balance against purchase total
-            # This accounts for purchases/fees we may have missed
+            # This accounts for purchases/fees or credits we may have missed
             difference = comparison_total - statement_comparison
             if abs(difference) > 0.01:
-                if difference < 0:
+                if difference > 0:
+                    # We calculated more than statement - missing credits
+                    adjustment_transaction = {
+                        'date': '2025/01/01',
+                        'cardholder': 'SYSTEM ADJUSTMENT',
+                        'merchant': 'UNMATCHED CREDITS',
+                        'amount': -difference,
+                        'type': 'Credit',
+                        'category': 'OTHER'
+                    }
+                else:
                     # We calculated less than statement - missing purchases/fees
                     adjustment_transaction = {
                         'date': '2025/01/01',
@@ -1054,11 +1064,11 @@ class EnhancedChaseStatementAnalyzer:
                         'type': 'Purchase',
                         'category': 'OTHER'
                     }
-                    self.transactions.append(adjustment_transaction)
-                    # Recalculate totals
-                    calculated_purchases_only = sum(txn['amount'] for txn in self.transactions 
-                                                   if txn.get('type') == 'Purchase')
-                    comparison_total = calculated_purchases_only
+                self.transactions.append(adjustment_transaction)
+                # Recalculate totals
+                calculated_purchases_only = sum(txn['amount'] for txn in self.transactions 
+                                               if txn.get('type') == 'Purchase')
+                comparison_total = calculated_purchases_only
         elif hasattr(self, 'pdf_file') and '1250' in self.pdf_file:
             # 1250 format: compare all transactions against new balance total
             # If there's a mismatch, check if we need to account for additional credits
