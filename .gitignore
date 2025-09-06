@@ -1,0 +1,45 @@
+# Generated output files from statement processing
+0801/*.csv
+0801/*.categories
+1250/*.csv
+1250/*.categories
+5136/*.csv
+5136/*.categories
+8635/*.csv
+8635/*.categories
+
+# Batch processing output logs
+*.out
+
+# System files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Environment files
+.env
+.venv
+env/
+venv/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Temporary files
+*.tmp
+*.bak
+*.log
