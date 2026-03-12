@@ -1,7 +1,7 @@
 CHASE CREDIT CARD STATEMENT - CATEGORY ANALYSIS (PURCHASES ONLY)
 ================================================================================
-Generated from: 5136/20251214-statements-5136-.csv
-Analysis Date: 2025-12-26 12:00:53
+Generated from: /Users/araj/work/ChennaiMasala/ChaseAnalyzer/2025/5136/20251214-statements-5136-.csv
+Analysis Date: 2026-01-15 15:33:38
 Total Transactions: 156 (purchases only)
 Total Amount: $21,487.99
 
@@ -9,14 +9,15 @@ CATEGORY BREAKDOWN
 ================================================================================
 AUTO                   4 transactions  $  2,039.64
 CC Fees                1 transactions  $     88.00
-DINING                52 transactions  $  1,889.11
+COUNTY FEES            1 transactions  $  3,591.66
+DINING                53 transactions  $  1,911.09
 GAS/FUEL               3 transactions  $    303.50
 GROCERIES             28 transactions  $  2,340.51
 INSURANCE              3 transactions  $    717.40
-MAINTENANCE            7 transactions  $    309.31
-MEDICAL                1 transactions  $     10.00
+MAINTENANCE            8 transactions  $    579.04
+MEDICAL                3 transactions  $     27.35
 MEDICAL/HEALTH         3 transactions  $     45.17
-OTHER                  9 transactions  $  6,078.73
-SERVICES              19 transactions  $  6,268.52
-TRAVEL                22 transactions  $    485.02
+OTHER                  1 transactions  $    542.02
+SERVICES              20 transactions  $  6,272.77
+TRAVEL                24 transactions  $  2,116.76
 UTILITIES              4 transactions  $    913.08
