@@ -1512,7 +1512,7 @@ def main():
     parser = argparse.ArgumentParser(description='Enhanced Chase Statement Analyzer supporting multiple formats')
     
     # Input options
-    parser.add_argument('pdf_file', nargs='?', help='Single PDF file to process')
+    parser.add_argument('pdf_file', nargs='*', help='One or more PDF files to process')
     parser.add_argument('-d', '--directory', help='Directory containing PDF files to process')
     
     # Output options
@@ -1540,11 +1540,15 @@ def main():
         print("Error: Please specify either a PDF file or use -d/--directory")
         parser.print_help()
         sys.exit(1)
-    
+
     if args.pdf_file and args.directory:
         print("Error: Please specify either a PDF file OR a directory, not both")
         parser.print_help()
         sys.exit(1)
+
+    # Use the first file for master-file resolution below; each file is
+    # still processed independently in the loop further down.
+    first_pdf_file = args.pdf_file[0] if args.pdf_file else None
     
     analyzer = EnhancedChaseStatementAnalyzer()
     
@@ -1556,9 +1560,9 @@ def main():
             # Only fall back to directory-specific search if the explicit file doesn't exist
             if os.path.exists(args.master_file):
                 master_file = args.master_file
-            elif args.pdf_file and os.path.basename(args.master_file) == args.master_file:
+            elif first_pdf_file and os.path.basename(args.master_file) == args.master_file:
                 # If explicit file doesn't exist and it's just a filename, try in PDF directory
-                pdf_dir = os.path.dirname(args.pdf_file) or '.'
+                pdf_dir = os.path.dirname(first_pdf_file) or '.'
                 dir_master_file = os.path.join(pdf_dir, args.master_file)
                 if os.path.exists(dir_master_file):
                     master_file = dir_master_file
@@ -1568,8 +1572,8 @@ def main():
                 master_file = args.master_file  # Use as-is (could be relative or absolute path)
         elif args.directory:
             master_file = os.path.join(args.directory, 'categories.master')
-        elif args.pdf_file:
-            pdf_dir = os.path.dirname(args.pdf_file) or '.'
+        elif first_pdf_file:
+            pdf_dir = os.path.dirname(first_pdf_file) or '.'
             # First try directory-specific master file
             dir_master_file = os.path.join(pdf_dir, 'categories.master')
             if os.path.exists(dir_master_file):
@@ -1635,14 +1639,21 @@ def main():
                 print("\n" + "=" * 80 + "\n")
             
     elif args.pdf_file:
-        # Process single PDF file
-        if not os.path.exists(args.pdf_file):
-            print(f"Error: File not found: {args.pdf_file}")
-            sys.exit(1)
-        
-        # Master file was already set up above
-        
-        analyzer.process_pdf_file(args.pdf_file, create_csv=args.csv, use_master=bool(master_file), interactive=args.interactive, summary_only=args.summary_only)
+        # Process one or more PDF files (e.g. from shell glob expansion)
+        for pdf_path in args.pdf_file:
+            if not os.path.exists(pdf_path):
+                print(f"Error: File not found: {pdf_path}")
+                sys.exit(1)
+
+        for pdf_path in args.pdf_file:
+            # Master file was already set up above (based on the first file)
+            file_analyzer = EnhancedChaseStatementAnalyzer()
+            file_analyzer.master_file = analyzer.master_file
+
+            file_analyzer.process_pdf_file(pdf_path, create_csv=args.csv, use_master=bool(master_file), interactive=args.interactive, summary_only=args.summary_only)
+
+            if len(args.pdf_file) > 1 and not args.summary_only:
+                print("\n" + "=" * 80 + "\n")
     else:
         print("Error: Please specify a PDF file or directory")
         parser.print_help()
