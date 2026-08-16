@@ -1,0 +1,17 @@
+CHASE CREDIT CARD STATEMENT - CATEGORY ANALYSIS (PURCHASES ONLY)
+================================================================================
+Generated from: /Users/araj/work/ChennaiMasala/ChaseAnalyzer/2026/1250/eStmt_2026-04-24.csv
+Analysis Date: 2026-06-28 10:29:16
+Total Transactions: 75 (purchases only)
+Total Amount: $3,906.79
+
+CATEGORY BREAKDOWN
+================================================================================
+DINING                26 transactions  $    380.88
+GROCERIES             22 transactions  $    391.39
+MAINTENANCE            3 transactions  $    328.20
+MEDICAL/HEALTH         1 transactions  $     39.77
+OTHER                  1 transactions  $     82.12
+RESTAURANT             1 transactions  $      2.50
+SERVICES               5 transactions  $    429.47
+TRAVEL                16 transactions  $  2,252.46
