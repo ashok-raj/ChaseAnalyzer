@@ -43,3 +43,6 @@ venv/
 *.tmp
 *.bak
 *.log
+downloaders/.otp_handoff/
+downloaders/*.log
+downloaders/.chrome_profiles/
