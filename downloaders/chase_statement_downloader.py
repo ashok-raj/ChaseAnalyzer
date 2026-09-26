@@ -26,9 +26,15 @@ from datetime import datetime
 from pathlib import Path
 
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException, NoSuchElementException
+from selenium.common.exceptions import (
+    TimeoutException,
+    NoSuchElementException,
+    ElementNotInteractableException,
+    StaleElementReferenceException,
+)
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from bank_credentials import get_or_prompt_credentials
@@ -87,21 +93,26 @@ def dump_mfa_dom(driver, label: str):
     components with closed-looking but open shadow roots)."""
     js = """
     function walk(root, path, out) {
-        const els = root.querySelectorAll("input, button, li, a, select, [role='radio'], [role='option'], [role='listitem'], [role='button']");
-        els.forEach(el => {
-            out.push({
-                path: path,
-                tag: el.tagName,
-                id: el.id,
-                name: el.name || '',
-                type: el.type || '',
-                role: el.getAttribute('role') || '',
-                cls: (el.className || '').toString().slice(0, 60),
-                text: (el.innerText || el.value || '').trim().slice(0, 60).replace(/\\n/g, ' | '),
-                visible: !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length)
-            });
-        });
+        // Cast a wide net: Chase's list items are custom elements (e.g.
+        // <mds-list-item>) that carry no role/tag hint, so filter by
+        // "has its own visible text" instead of a fixed tag/role allowlist.
         root.querySelectorAll('*').forEach(el => {
+            const text = (el.innerText || el.value || '').trim();
+            const isLeafText = text && text.length < 120 &&
+                (!el.children.length || [...el.children].every(c => !(c.innerText || '').trim()));
+            if (isLeafText || ['INPUT','BUTTON','LI','A','SELECT'].includes(el.tagName)) {
+                out.push({
+                    path: path,
+                    tag: el.tagName,
+                    id: el.id,
+                    name: el.name || '',
+                    type: el.type || '',
+                    role: el.getAttribute('role') || '',
+                    cls: (el.className || '').toString().slice(0, 60),
+                    text: text.slice(0, 100).replace(/\\n/g, ' | '),
+                    visible: !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length)
+                });
+            }
             if (el.shadowRoot) walk(el.shadowRoot, path + '>' + el.tagName + '#shadow', out);
         });
     }
@@ -159,14 +170,105 @@ def submit_otp_code(driver, code: str) -> bool:
     return result == "ok"
 
 
-def try_automate_mfa(driver, bank_key: str):
-    """Best-effort automation of Chase's SMS MFA challenge. Only the OTP-code
-    submission step is automated (via the handoff file) -- picking "Get a
-    text" and the phone number are left for the human to click directly in
-    the real browser window, since those clicks proved unreliable to drive
-    programmatically against Chase's app and are trivial to do by hand.
-    Returns True if it drove the flow to submission, False otherwise."""
+def find_all_shadow_hosts(driver):
+    """Return every element in the document (and recursively, inside every
+    open shadow root) as real Selenium WebElements, so callers can pierce
+    Chase's mds-* shadow DOM without JS-synthesized (untrusted) clicks."""
+    js = """
+    function walk(root, out) {
+        root.querySelectorAll('*').forEach(el => {
+            out.push(el);
+            if (el.shadowRoot) walk(el.shadowRoot, out);
+        });
+    }
+    const out = [];
+    walk(document, out);
+    return out;
+    """
+    return driver.execute_script(js)
+
+
+def select_text_option(driver) -> bool:
+    """Click "Get a text" on Chase's MFA method-picker page. Verified via a
+    live DOM dump: it's a <label>Get a text</label> inside an <mds-list>
+    shadow root, with the containing <li> as the real click target.
+
+    A JS-synthesized element.click() finds the right element but does NOT
+    register the selection -- Chase's mds-list component almost certainly
+    checks event.isTrusted, which is false for script-dispatched clicks. So
+    this clicks via a real Selenium ActionChains click (a trusted OS-level
+    event) on the WebElement instead."""
+    for el in find_all_shadow_hosts(driver):
+        if el.tag_name == "li" and "Get a text" in el.text:
+            ActionChains(driver).move_to_element(el).pause(0.2).click(el).perform()
+            return True
+    return False
+
+
+def select_phone_and_continue(driver, suffix: str) -> bool:
+    """Pick the phone number ending in `suffix` on Chase's SMS page and click
+    Next, via real (trusted) clicks -- see select_text_option for why JS
+    clicks don't work on these components. Verified via a live DOM dump: the
+    picker is <mds-select id="eligibleTextContacts">, its visible trigger is
+    a <button id="select-eligibleTextContacts"> inside its shadow root, and
+    the actual choices are light-DOM <mds-select-option> elements. "Next" is
+    a primary <button> inside an <mds-button> shadow root."""
+    elements = find_all_shadow_hosts(driver)
+
+    trigger = next((el for el in elements if el.get_attribute("id") == "select-eligibleTextContacts"), None)
+    if trigger is None:
+        return False
+
+    if suffix not in trigger.text:
+        ActionChains(driver).move_to_element(trigger).pause(0.2).click(trigger).perform()
+        time.sleep(0.5)
+        options = driver.find_elements(By.TAG_NAME, "mds-select-option")
+        option = next((o for o in options if suffix in o.text), None)
+        if option is None:
+            return False
+        ActionChains(driver).move_to_element(option).pause(0.2).click(option).perform()
+        time.sleep(0.5)
+        elements = find_all_shadow_hosts(driver)  # DOM may have re-rendered after selection
+
+    next_btn = next(
+        (el for el in elements
+         if el.tag_name == "button"
+         and "button--primary" in (el.get_attribute("class") or "")
+         and el.text.strip().startswith("Next")),
+        None,
+    )
+    if next_btn is None:
+        return False
+    ActionChains(driver).move_to_element(next_btn).pause(0.2).click(next_btn).perform()
+    return True
+
+
+def try_automate_mfa(driver, bank_key: str, phone_suffix: str = "8963"):
+    """Best-effort automation of Chase's SMS MFA challenge: picks "Get a
+    text", then the phone number ending in `phone_suffix`, then submits the
+    OTP code via the handoff file. Falls back to leaving the browser as-is
+    (for a human to finish by hand) if any automated step doesn't find what
+    it expects -- Chase's MFA markup has changed shape before.
+    Returns True if it drove the flow forward, False otherwise."""
     url = driver.current_url
+
+    if "step=confirmIdentity" in url and "caas=options" in url:
+        time.sleep(2)  # let Chase finish lazily rendering the list items
+        if select_text_option(driver):
+            logging.info("Auto-selected 'Get a text' MFA option.")
+            return True
+        logging.warning("Could not auto-select 'Get a text'; dumping DOM and falling back to manual click.")
+        dump_mfa_dom(driver, "options")
+        return False
+
+    if "step=confirmIdentity" in url and "caas=sms" in url:
+        time.sleep(2)
+        if select_phone_and_continue(driver, phone_suffix):
+            logging.info(f"Auto-selected phone ending in {phone_suffix} and clicked Next.")
+            return True
+        logging.warning(f"Could not auto-select phone ending in {phone_suffix}; dumping DOM and falling back to manual click.")
+        dump_mfa_dom(driver, "sms")
+        return False
 
     if "step=confirmIdentity" in url and "caas=verifyOTP" in url:
         code = wait_for_otp_code(driver, bank_key)
@@ -251,17 +353,32 @@ def _dropdown_label(driver, el) -> str:
     )
 
 
+def click_when_ready(wait, get_element, retries: int = 5, delay: float = 1.5):
+    """Click an element, retrying past the brief window where the
+    Statements/Documents panel is still mid-load: `element_to_be_clickable`
+    only checks visibility/enabled, not whether a loading overlay is still
+    covering the element, so Selenium can still throw
+    ElementNotInteractableException right after the wait succeeds."""
+    for attempt in range(retries):
+        try:
+            get_element().click()
+            return
+        except (ElementNotInteractableException, StaleElementReferenceException):
+            if attempt == retries - 1:
+                raise
+            time.sleep(delay)
+
+
 def select_year(driver, wait, year: str):
     dropdown = wait.until(EC.element_to_be_clickable(SELECTORS["year_dropdown"]))
     wait.until(lambda d: _dropdown_label(driver, dropdown) != "")
     if year in _dropdown_label(driver, dropdown):
         return
-    dropdown.click()
+    click_when_ready(wait, lambda: wait.until(EC.element_to_be_clickable(SELECTORS["year_dropdown"])))
     year_list = wait.until(EC.presence_of_element_located(SELECTORS["year_list"]))
-    option = wait.until(lambda d: year_list.find_element(
+    click_when_ready(wait, lambda: year_list.find_element(
         By.XPATH, f".//li[normalize-space(.)='{year}']"
     ))
-    option.click()
     time.sleep(2)
 
 
